@@ -14,14 +14,34 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   // Load installer configuration
   ipcMain.handle('installer:getConfig', async () => {
     try {
-      // Load from the root directory config file
-      const configPath = path.join(process.cwd(), 'installer-config.json');
+      // Try advanced config first, fall back to basic
+      let configPath = path.join(process.cwd(), 'installer-config-advanced.json');
+      
+      try {
+        await fs.access(configPath);
+      } catch {
+        // Fall back to basic config
+        configPath = path.join(process.cwd(), 'installer-config.json');
+      }
+      
       const configData = await fs.readFile(configPath, 'utf-8');
       installerConfig = JSON.parse(configData);
       return installerConfig;
     } catch (error) {
       console.error('Failed to load installer config:', error);
       throw error;
+    }
+  });
+
+  // Load advanced installer configuration
+  ipcMain.handle('installer:getAdvancedConfig', async () => {
+    try {
+      const configPath = path.join(process.cwd(), 'installer-config-advanced.json');
+      const configData = await fs.readFile(configPath, 'utf-8');
+      return JSON.parse(configData);
+    } catch (error) {
+      // Return null if advanced config doesn't exist
+      return null;
     }
   });
 

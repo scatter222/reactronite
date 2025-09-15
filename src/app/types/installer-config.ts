@@ -37,12 +37,29 @@ export interface ConfigField {
 }
 
 export interface InstallCommand {
-  cmd: string;
+  cmd?: string;
   description: string;
   safe?: boolean;
   sensitive?: boolean;
   expectedExitCode?: number;
   timeout?: number;
+  captureAs?: string; // Capture output as variable
+  defaultValue?: string; // Default if capture fails
+  condition?: string; // JavaScript expression to evaluate
+  type?: 'command' | 'prompt' | 'display';
+  
+  // For prompts
+  promptType?: 'input' | 'password' | 'confirm' | 'select' | 'multiselect';
+  message?: string;
+  options?: Array<{ value: string; label: string; selected?: boolean }>;
+  default?: any;
+  validation?: string;
+  allowEmpty?: boolean;
+  required?: boolean;
+  
+  // For display
+  title?: string;
+  content?: string[];
 }
 
 export interface InstallStep {

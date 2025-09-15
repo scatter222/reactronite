@@ -1,0 +1,237 @@
+{
+  "installer": {
+    "name": "Advanced System Setup",
+    "version": "2.0.0",
+    "description": "Advanced installer with dynamic variables and interactive prompts"
+  },
+  "preChecks": [
+    {
+      "name": "Check OS Version",
+      "command": "uname -a",
+      "captureAs": "systemInfo",
+      "expectedPattern": "Linux",
+      "errorMessage": "This installer requires a Linux system"
+    },
+    {
+      "name": "Get Network Interface",
+      "command": "ip route | grep default | awk '{print $5}' | head -1",
+      "captureAs": "primaryInterface",
+      "errorMessage": "Could not determine network interface"
+    }
+  ],
+  "configFields": [
+    {
+      "id": "hostname",
+      "label": "System Hostname",
+      "type": "text",
+      "required": true,
+      "placeholder": "my-server",
+      "validation": "^[a-zA-Z0-9-]+$",
+      "description": "The hostname for this system"
+    },
+    {
+      "id": "username",
+      "label": "Admin Username",
+      "type": "text",
+      "required": true,
+      "placeholder": "admin",
+      "validation": "^[a-z_][a-z0-9_-]*$",
+      "description": "Username for the administrator account"
+    },
+    {
+      "id": "sshKeyType",
+      "label": "SSH Key Type",
+      "type": "select",
+      "required": true,
+      "options": [
+        { "value": "ed25519", "label": "ED25519 (Recommended)" },
+        { "value": "rsa", "label": "RSA 4096-bit" },
+        { "value": "ecdsa", "label": "ECDSA" }
+      ],
+      "default": "ed25519",
+      "description": "Type of SSH key to generate"
+    }
+  ],
+  "installSteps": [
+    {
+      "name": "System Detection",
+      "description": "Detecting system configuration",
+      "commands": [
+        {
+          "cmd": "hostname",
+          "description": "Getting current hostname",
+          "captureAs": "currentHostname",
+          "safe": true
+        },
+        {
+          "cmd": "whoami",
+          "description": "Getting current user",
+          "captureAs": "currentUser",
+          "safe": true
+        },
+        {
+          "cmd": "echo \"Your current hostname is: {{currentHostname}}\"",
+          "description": "Display current hostname",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Interactive Configuration",
+      "description": "Configuring system with user input",
+      "commands": [
+        {
+          "type": "prompt",
+          "promptType": "confirm",
+          "message": "Current hostname is '{{currentHostname}}'. Do you want to change it to '{{hostname}}'?",
+          "captureAs": "changeHostname",
+          "default": true
+        },
+        {
+          "cmd": "echo 'Setting hostname to: {{hostname}}'",
+          "description": "Configuring hostname",
+          "condition": "changeHostname",
+          "safe": true
+        },
+        {
+          "type": "prompt",
+          "promptType": "password",
+          "message": "Enter a passphrase for your SSH key (leave empty for no passphrase):",
+          "captureAs": "sshPassphrase",
+          "allowEmpty": true
+        }
+      ]
+    },
+    {
+      "name": "Generate SSH Keys",
+      "description": "Creating SSH keypair",
+      "commands": [
+        {
+          "cmd": "echo 'Generating {{sshKeyType}} key for user: {{username}}'",
+          "description": "Preparing SSH key generation",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'ssh-keygen -t {{sshKeyType}} -f /tmp/test_{{username}}_{{sshKeyType}}'",
+          "description": "Generating SSH key",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'SHA256:ExampleFingerprint' | head -1",
+          "description": "Getting key fingerprint",
+          "captureAs": "sshFingerprint",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'SSH Key generated with fingerprint: {{sshFingerprint}}'",
+          "description": "Display key fingerprint",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Network Configuration",
+      "description": "Configuring network settings",
+      "commands": [
+        {
+          "type": "prompt",
+          "promptType": "select",
+          "message": "Select network configuration mode:",
+          "options": [
+            { "value": "dhcp", "label": "DHCP (Automatic)" },
+            { "value": "static", "label": "Static IP" }
+          ],
+          "captureAs": "networkMode",
+          "default": "dhcp"
+        },
+        {
+          "type": "prompt",
+          "promptType": "input",
+          "message": "Enter static IP address (e.g., 192.168.1.100/24):",
+          "captureAs": "staticIP",
+          "condition": "networkMode === 'static'",
+          "validation": "^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}/[0-9]{1,2}$"
+        },
+        {
+          "cmd": "echo 'Configuring network interface {{primaryInterface}} with {{networkMode}}'",
+          "description": "Applying network configuration",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Static IP: {{staticIP}}'",
+          "description": "Setting static IP",
+          "condition": "networkMode === 'static'",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Service Configuration",
+      "description": "Setting up system services",
+      "commands": [
+        {
+          "cmd": "systemctl list-units --type=service --state=running --no-pager | grep ssh | head -1 | awk '{print $1}'",
+          "description": "Checking SSH service name",
+          "captureAs": "sshServiceName",
+          "defaultValue": "sshd.service",
+          "safe": true
+        },
+        {
+          "type": "prompt",
+          "promptType": "multiselect",
+          "message": "Select services to enable:",
+          "options": [
+            { "value": "ssh", "label": "SSH Server", "selected": true },
+            { "value": "firewall", "label": "Firewall (UFW)", "selected": true },
+            { "value": "fail2ban", "label": "Fail2Ban", "selected": false },
+            { "value": "docker", "label": "Docker", "selected": false }
+          ],
+          "captureAs": "enabledServices"
+        },
+        {
+          "cmd": "echo 'Enabling {{sshServiceName}}'",
+          "description": "Enabling SSH service",
+          "condition": "enabledServices.includes('ssh')",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Summary",
+      "description": "Installation summary",
+      "commands": [
+        {
+          "type": "display",
+          "title": "Configuration Summary",
+          "content": [
+            "Hostname: {{hostname}}",
+            "Username: {{username}}",
+            "SSH Key Type: {{sshKeyType}}",
+            "SSH Fingerprint: {{sshFingerprint}}",
+            "Network Mode: {{networkMode}}",
+            "Network Interface: {{primaryInterface}}",
+            "Services: {{enabledServices}}"
+          ]
+        },
+        {
+          "type": "prompt",
+          "promptType": "confirm",
+          "message": "Do you want to proceed with these settings?",
+          "captureAs": "proceedWithInstall",
+          "default": true,
+          "required": true
+        }
+      ]
+    }
+  ],
+  "runtimeVariables": {
+    "description": "Variables that can be captured and used during installation",
+    "examples": {
+      "currentHostname": "Captured from 'hostname' command",
+      "sshFingerprint": "Captured from ssh-keygen output",
+      "primaryInterface": "Captured from network detection",
+      "sshPassphrase": "Captured from user prompt",
+      "networkMode": "Selected by user during installation"
+    }
+  }
+}
