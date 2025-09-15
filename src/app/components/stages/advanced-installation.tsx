@@ -150,9 +150,12 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       addLine('info', `⌨ User input required: ${command.description}`);
       setCurrentPrompt(command);
       setIsPaused(true);
-      
-      // Wait for user input
+
+      // Wait for user input - don't continue until prompt is handled
       await waitForPromptResponse();
+
+      // Add a small delay to ensure state updates have propagated
+      await new Promise(resolve => setTimeout(resolve, 100));
       return;
     }
 
@@ -180,7 +183,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       
       if (result.output) {
         const outputLines = result.output.trim().split('\n');
-        outputLines.forEach(line => {
+        outputLines.forEach((line: string) => {
           if (line.trim()) {
             addLine('output', line);
           }
@@ -225,13 +228,17 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
         [currentPrompt.captureAs!]: value
       }));
       addLine('variable', `📝 Captured ${currentPrompt.captureAs}: ${
-        currentPrompt.promptType === 'password' ? '********' : 
+        currentPrompt.promptType === 'password' ? '********' :
         Array.isArray(value) ? value.join(', ') : value
       }`);
     }
-    
+
+    // Clear prompt first, then unpause to ensure proper sequencing
     setCurrentPrompt(null);
-    setIsPaused(false);
+    // Small delay to ensure UI updates before continuing
+    setTimeout(() => {
+      setIsPaused(false);
+    }, 50);
   };
 
   const runInstallation = async () => {
@@ -249,16 +256,18 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       for (const step of steps) {
         addLine('step', `\n📦 ${step.name}`);
         addLine('info', step.description);
-        
+
         for (const command of step.commands) {
+          // Process the command (this will handle prompts internally)
           await processCommand(command);
-          
-          // Wait if paused for user input
+
+          // Double-check: ensure we're not paused before continuing
+          // This handles any edge cases where isPaused might still be true
           while (isPaused) {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
-          
-          // Add small delay between commands
+
+          // Add small delay between commands for visibility
           await new Promise(resolve => setTimeout(resolve, 300));
         }
         
@@ -288,7 +297,8 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
   };
 
   useEffect(() => {
-    if (steps.length > 0) {
+    if (steps.length > 0 && !isInstalling && !installComplete) {
+      // Start installation automatically only once when steps are loaded
       runInstallation();
     }
   }, [steps]);

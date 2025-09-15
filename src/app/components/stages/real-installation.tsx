@@ -117,7 +117,7 @@ export function RealInstallationStage({ config, onNext, onBack }: RealInstallati
           
           if (result.output) {
             const outputLines = result.output.trim().split('\n');
-            outputLines.forEach(line => {
+            outputLines.forEach((line: string) => {
               if (line.trim()) {
                 addLine('output', line);
               }
