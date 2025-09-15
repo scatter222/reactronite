@@ -18,6 +18,8 @@ export interface PreCheck {
   minRequired?: string;
   type?: 'diskSpace' | 'memory' | 'cpu';
   errorMessage: string;
+  safe?: boolean;
+  captureAs?: string;
 }
 
 export interface ConfigField {

@@ -9,8 +9,9 @@
       "name": "Check OS Version",
       "command": "uname -a",
       "captureAs": "systemInfo",
-      "expectedPattern": "Linux",
-      "errorMessage": "This installer requires a Linux system"
+      "expectedPattern": "Linux|Darwin|MINGW|CYGWIN",
+      "errorMessage": "This installer requires a Unix-like system",
+      "safe": true
     },
     {
       "name": "Get Network Interface",

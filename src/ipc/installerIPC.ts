@@ -54,8 +54,21 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   // Run pre-installation check
   ipcMain.handle('installer:runPreCheck', async (_, check: PreCheck) => {
     try {
-      // For safety, only run commands marked as safe or use echo for testing
-      const command = check.command.startsWith('echo') ? check.command : `echo "Would run: ${check.command}"`;
+      // Allow certain safe commands to run for real
+      const safeCommands = [
+        'uname', 'hostname', 'whoami', 'pwd', 'date', 'df', 'free',
+        'ip route', 'ip addr', 'ls', 'cat /etc/os-release', 'echo'
+      ];
+      
+      // Check if command starts with a safe command
+      const isActuallySafe = safeCommands.some(safe => 
+        check.command.startsWith(safe + ' ') || 
+        check.command === safe ||
+        check.command.startsWith('echo ')
+      );
+      
+      // Run the actual command if it's safe, otherwise echo it
+      const command = isActuallySafe ? check.command : `echo "Would run: ${check.command}"`;
       
       const { stdout, stderr } = await execAsync(command, {
         timeout: 10000, // 10 second timeout
@@ -65,7 +78,7 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
 
       // Check for expected patterns
       if (check.expectedPattern) {
-        const regex = new RegExp(check.expectedPattern);
+        const regex = new RegExp(check.expectedPattern, 'i'); // Case insensitive
         if (!regex.test(output)) {
           return {
             success: false,
@@ -102,13 +115,26 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle('installer:runCommand', async (_, command: InstallCommand, variables: UserConfig) => {
     try {
       // Replace variables in command
-      let processedCommand = command.cmd;
+      let processedCommand = command.cmd || '';
       for (const [key, value] of Object.entries(variables)) {
         processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), value);
       }
 
-      // For safety, only run commands marked as safe or use echo
-      if (!command.safe && !processedCommand.startsWith('echo')) {
+      // List of actually safe commands that can run without explicit safe flag
+      const safeCommands = [
+        'uname', 'hostname', 'whoami', 'pwd', 'date', 'df', 'free',
+        'ip route', 'ip addr', 'ls', 'echo', 'cat /etc/os-release',
+        'systemctl list-units', 'which', 'test', 'head', 'tail', 'wc'
+      ];
+      
+      const isInherentlySafe = safeCommands.some(safe => 
+        processedCommand.startsWith(safe + ' ') || 
+        processedCommand === safe ||
+        processedCommand.startsWith('echo ')
+      );
+
+      // For safety, only run commands marked as safe or inherently safe commands
+      if (!command.safe && !isInherentlySafe) {
         processedCommand = `echo "Would run: ${processedCommand}"`;
       }
 
@@ -278,13 +304,26 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
         const result: any = await new Promise((resolve) => {
           try {
             // Replace variables in command
-            let processedCommand = command.cmd;
+            let processedCommand = command.cmd || '';
             for (const [key, value] of Object.entries(userConfig)) {
               processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
             }
 
-            // For safety, only run commands marked as safe or use echo
-            if (!command.safe && !processedCommand.startsWith('echo')) {
+            // List of actually safe commands
+            const safeCommands = [
+              'uname', 'hostname', 'whoami', 'pwd', 'date', 'df', 'free',
+              'ip route', 'ip addr', 'ls', 'echo', 'cat /etc/os-release',
+              'systemctl list-units', 'which', 'test', 'head', 'tail', 'wc'
+            ];
+            
+            const isInherentlySafe = safeCommands.some(safe => 
+              processedCommand.startsWith(safe + ' ') || 
+              processedCommand === safe ||
+              processedCommand.startsWith('echo ')
+            );
+
+            // For safety, only run commands marked as safe or inherently safe commands
+            if (!command.safe && !isInherentlySafe) {
               processedCommand = `echo "Would run: ${processedCommand}"`;
             }
 
