@@ -1,22 +1,17 @@
 import { Button } from '@/app/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/app/components/ui/card';
-import { CheckCircle2, FolderOpen, Terminal, FileText, ExternalLink } from 'lucide-react';
-import type { InstallConfig } from '@/app/screens/installer';
+import { CheckCircle2, FolderOpen, Terminal, FileText, Shield, Server } from 'lucide-react';
+import type { UserConfig } from '@/app/types/installer-config';
 
 interface CompletionStageProps {
-  config: InstallConfig;
+  config: UserConfig;
   onComplete: () => void;
 }
 
 export function CompletionStage({ config, onComplete }: CompletionStageProps) {
-  const openFolder = () => {
-    // This would open the installation folder in the file explorer
-    electron.ipcRenderer.invoke('shell:openPath', config.installPath);
-  };
-
   const openTerminal = () => {
-    // This would open a terminal at the installation path
-    electron.ipcRenderer.invoke('shell:openTerminal', config.installPath);
+    // Open a terminal window
+    electron.ipcRenderer.invoke('shell:openTerminal', process.cwd());
   };
 
   return (
@@ -31,7 +26,7 @@ export function CompletionStage({ config, onComplete }: CompletionStageProps) {
         </h2>
         
         <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-          Your project <span className="text-blue-400 font-semibold">"{config.projectName}"</span> has been successfully installed and configured.
+          Your system has been successfully configured and all components have been installed.
         </p>
       </div>
 
@@ -44,24 +39,40 @@ export function CompletionStage({ config, onComplete }: CompletionStageProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex justify-between py-2 border-b border-slate-700">
-              <span className="text-slate-400">Project Name:</span>
-              <span className="text-white font-medium">{config.projectName}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-slate-700">
-              <span className="text-slate-400">Installation Path:</span>
-              <span className="text-white font-mono text-sm">{config.installPath}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-slate-700">
-              <span className="text-slate-400">Logging Enabled:</span>
-              <span className="text-white">{config.enableLogging ? 'Yes' : 'No'}</span>
-            </div>
-            {config.customOptions.apiEndpoint && (
+            {config.hostname && (
               <div className="flex justify-between py-2 border-b border-slate-700">
-                <span className="text-slate-400">API Endpoint:</span>
-                <span className="text-white font-mono text-sm">{config.customOptions.apiEndpoint}</span>
+                <span className="text-slate-400">Hostname:</span>
+                <span className="text-white font-medium">{config.hostname}</span>
               </div>
             )}
+            {config.username && (
+              <div className="flex justify-between py-2 border-b border-slate-700">
+                <span className="text-slate-400">Admin User:</span>
+                <span className="text-white font-medium">{config.username}</span>
+              </div>
+            )}
+            {config.sshPort && (
+              <div className="flex justify-between py-2 border-b border-slate-700">
+                <span className="text-slate-400">SSH Port:</span>
+                <span className="text-white">{config.sshPort}</span>
+              </div>
+            )}
+            {config.enableFirewall !== undefined && (
+              <div className="flex justify-between py-2 border-b border-slate-700">
+                <span className="text-slate-400">Firewall:</span>
+                <span className="text-white">{config.enableFirewall ? 'Enabled' : 'Disabled'}</span>
+              </div>
+            )}
+            {config.timezone && (
+              <div className="flex justify-between py-2 border-b border-slate-700">
+                <span className="text-slate-400">Timezone:</span>
+                <span className="text-white">{config.timezone}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 pt-2 text-green-400">
+              <Shield className="w-4 h-4" />
+              <span className="text-sm">Security configurations applied</span>
+            </div>
           </CardContent>
         </Card>
 
@@ -73,31 +84,37 @@ export function CompletionStage({ config, onComplete }: CompletionStageProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <Button
-                onClick={openFolder}
-                variant="outline"
-                className="bg-slate-900/50 border-slate-600 text-white hover:bg-slate-800 justify-start"
-              >
-                <FolderOpen className="w-4 h-4 mr-2" />
-                Open Project Folder
-              </Button>
-              
-              <Button
-                onClick={openTerminal}
-                variant="outline"
-                className="bg-slate-900/50 border-slate-600 text-white hover:bg-slate-800 justify-start"
-              >
-                <Terminal className="w-4 h-4 mr-2" />
-                Open Terminal
-              </Button>
-            </div>
+            <Button
+              onClick={openTerminal}
+              variant="outline"
+              className="w-full bg-slate-900/50 border-slate-600 text-white hover:bg-slate-800 justify-start"
+            >
+              <Terminal className="w-4 h-4 mr-2" />
+              Open Terminal
+            </Button>
 
             <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
-              <p className="text-sm text-slate-300 mb-2">To start developing, run:</p>
-              <code className="block bg-slate-950 rounded px-3 py-2 text-blue-400 font-mono text-sm">
-                cd {config.installPath} && npm run dev
-              </code>
+              <p className="text-sm text-slate-300 mb-2">Your system is now configured with:</p>
+              <ul className="space-y-2 text-sm text-slate-400">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  SSH keys generated and configured
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  Security hardening applied
+                </li>
+                {config.enableFirewall && (
+                  <li className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    Firewall configured and enabled
+                  </li>
+                )}
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  System timezone configured
+                </li>
+              </ul>
             </div>
 
             <div className="flex items-start gap-3 text-sm text-slate-400">

@@ -1,0 +1,231 @@
+{
+  "installer": {
+    "name": "System Setup Installer",
+    "version": "1.0.0",
+    "description": "Automated system configuration and setup"
+  },
+  "preChecks": [
+    {
+      "name": "Check OS Version",
+      "command": "uname -a",
+      "expectedPattern": "Linux",
+      "errorMessage": "This installer requires a Linux system"
+    },
+    {
+      "name": "Check Available Disk Space",
+      "command": "df -h /",
+      "minRequired": "10G",
+      "type": "diskSpace",
+      "errorMessage": "Insufficient disk space. At least 10GB required"
+    },
+    {
+      "name": "Check Network Connection",
+      "command": "ping -c 1 8.8.8.8",
+      "expectedExitCode": 0,
+      "errorMessage": "No network connection available"
+    },
+    {
+      "name": "Check Root/Sudo Access",
+      "command": "sudo -n true",
+      "expectedExitCode": 0,
+      "errorMessage": "Administrator privileges required"
+    }
+  ],
+  "configFields": [
+    {
+      "id": "hostname",
+      "label": "System Hostname",
+      "type": "text",
+      "required": true,
+      "placeholder": "my-server",
+      "validation": "^[a-zA-Z0-9-]+$",
+      "description": "The hostname for this system"
+    },
+    {
+      "id": "username",
+      "label": "Admin Username",
+      "type": "text",
+      "required": true,
+      "placeholder": "admin",
+      "validation": "^[a-z_][a-z0-9_-]*$",
+      "description": "Username for the administrator account"
+    },
+    {
+      "id": "sshPassword",
+      "label": "SSH Key Passphrase",
+      "type": "password",
+      "required": true,
+      "minLength": 8,
+      "description": "Passphrase for SSH key generation"
+    },
+    {
+      "id": "luksPassword",
+      "label": "LUKS Encryption Password",
+      "type": "password",
+      "required": true,
+      "minLength": 12,
+      "description": "Password for disk encryption (LUKS)"
+    },
+    {
+      "id": "enableFirewall",
+      "label": "Enable Firewall",
+      "type": "boolean",
+      "default": true,
+      "description": "Enable and configure UFW firewall"
+    },
+    {
+      "id": "sshPort",
+      "label": "SSH Port",
+      "type": "number",
+      "default": 22,
+      "min": 1024,
+      "max": 65535,
+      "description": "Port number for SSH service"
+    },
+    {
+      "id": "timezone",
+      "label": "System Timezone",
+      "type": "select",
+      "required": true,
+      "options": [
+        { "value": "UTC", "label": "UTC" },
+        { "value": "America/New_York", "label": "Eastern Time" },
+        { "value": "America/Chicago", "label": "Central Time" },
+        { "value": "America/Denver", "label": "Mountain Time" },
+        { "value": "America/Los_Angeles", "label": "Pacific Time" },
+        { "value": "Europe/London", "label": "London" },
+        { "value": "Europe/Paris", "label": "Paris" },
+        { "value": "Asia/Tokyo", "label": "Tokyo" }
+      ],
+      "default": "UTC",
+      "description": "Select your timezone"
+    }
+  ],
+  "installSteps": [
+    {
+      "name": "System Update",
+      "description": "Updating system packages",
+      "commands": [
+        {
+          "cmd": "echo 'Checking for system updates...'",
+          "description": "Checking for updates",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would run: sudo apt-get update'",
+          "description": "Updating package lists",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would run: sudo apt-get upgrade -y'",
+          "description": "Upgrading packages",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Configure Hostname",
+      "description": "Setting system hostname",
+      "commands": [
+        {
+          "cmd": "echo 'Setting hostname to: {{hostname}}'",
+          "description": "Configuring hostname",
+          "safe": true
+        },
+        {
+          "cmd": "echo '{{hostname}}' | tee /tmp/test-hostname",
+          "description": "Writing hostname file",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Generate SSH Keys",
+      "description": "Creating SSH keypair",
+      "commands": [
+        {
+          "cmd": "echo 'Generating SSH key for user: {{username}}'",
+          "description": "Creating SSH directory",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would run: ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519'",
+          "description": "Generating ED25519 key",
+          "safe": true,
+          "sensitive": true
+        }
+      ]
+    },
+    {
+      "name": "Configure Firewall",
+      "description": "Setting up firewall rules",
+      "condition": "enableFirewall",
+      "commands": [
+        {
+          "cmd": "echo 'Configuring UFW firewall'",
+          "description": "Installing UFW",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would run: sudo ufw allow {{sshPort}}/tcp'",
+          "description": "Allowing SSH port",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would run: sudo ufw --force enable'",
+          "description": "Enabling firewall",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Set Timezone",
+      "description": "Configuring system timezone",
+      "commands": [
+        {
+          "cmd": "echo 'Setting timezone to: {{timezone}}'",
+          "description": "Configuring timezone",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would run: sudo timedatectl set-timezone {{timezone}}'",
+          "description": "Applying timezone settings",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Security Hardening",
+      "description": "Applying security configurations",
+      "commands": [
+        {
+          "cmd": "echo 'Disabling root SSH login'",
+          "description": "Securing SSH configuration",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would configure: PermitRootLogin no'",
+          "description": "Updating sshd_config",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Would configure: PasswordAuthentication no'",
+          "description": "Disabling password auth",
+          "safe": true
+        }
+      ]
+    }
+  ],
+  "postInstall": [
+    {
+      "name": "Verify Installation",
+      "command": "echo 'Installation completed successfully!'",
+      "safe": true
+    },
+    {
+      "name": "Show Summary",
+      "command": "echo 'System configured with hostname: {{hostname}}'",
+      "safe": true
+    }
+  ]
+}

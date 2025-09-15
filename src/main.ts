@@ -4,6 +4,7 @@ import squirrelStartup from 'electron-squirrel-startup';
 
 import { createAppWindow } from './appWindow';
 import { registerDialogHandlers } from './ipc/dialogIPC';
+import { registerInstallerHandlers } from './ipc/installerIPC';
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
 
@@ -24,8 +25,9 @@ app.whenReady().then(() => {
  * Some APIs can only be used after this event occurs.
  */
 app.on('ready', () => {
-  createAppWindow();
+  const mainWindow = createAppWindow();
   registerDialogHandlers();
+  registerInstallerHandlers(mainWindow);
 });
 
 /**

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Check, ChevronRight, Circle, Package2, Settings, Terminal, FileCheck } from 'lucide-react';
-import { Button } from '@/app/components/ui/button';
-import { ConfigurationStage } from '@/app/components/stages/configuration';
-import { InstallationStage } from '@/app/components/stages/installation';
+import { Check, ChevronRight, Package2, Settings, Terminal, FileCheck, Shield } from 'lucide-react';
+import { DynamicConfigurationStage } from '@/app/components/stages/dynamic-configuration';
+import { PreChecksStage } from '@/app/components/stages/pre-checks';
+import { RealInstallationStage } from '@/app/components/stages/real-installation';
 import { CompletionStage } from '@/app/components/stages/completion';
 import { useNavigate } from 'react-router-dom';
+import type { UserConfig } from '@/app/types/installer-config';
 
 export interface InstallConfig {
   projectName: string;
@@ -25,15 +26,11 @@ export interface Stage {
 export function InstallerScreen() {
   const navigate = useNavigate();
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
-  const [config, setConfig] = useState<InstallConfig>({
-    projectName: '',
-    installPath: '',
-    enableLogging: true,
-    customOptions: {}
-  });
+  const [userConfig, setUserConfig] = useState<UserConfig>({});
 
   const [stages, setStages] = useState<Stage[]>([
     { id: 'config', label: 'Configuration', icon: Settings, status: 'active' },
+    { id: 'precheck', label: 'Pre-Checks', icon: Shield, status: 'pending' },
     { id: 'install', label: 'Installation', icon: Terminal, status: 'pending' },
     { id: 'complete', label: 'Completion', icon: FileCheck, status: 'pending' }
   ]);
@@ -68,16 +65,22 @@ export function InstallerScreen() {
     switch (stages[currentStageIndex].id) {
       case 'config':
         return (
-          <ConfigurationStage 
-            config={config} 
-            onConfigChange={setConfig}
+          <DynamicConfigurationStage 
+            onConfigChange={setUserConfig}
             onNext={handleNext}
+          />
+        );
+      case 'precheck':
+        return (
+          <PreChecksStage
+            onNext={handleNext}
+            onBack={handleBack}
           />
         );
       case 'install':
         return (
-          <InstallationStage 
-            config={config}
+          <RealInstallationStage 
+            config={userConfig}
             onNext={handleNext}
             onBack={handleBack}
           />
@@ -85,7 +88,7 @@ export function InstallerScreen() {
       case 'complete':
         return (
           <CompletionStage 
-            config={config}
+            config={userConfig as InstallConfig}
             onComplete={handleComplete}
           />
         );
