@@ -14,6 +14,16 @@ export function CompletionStage({ config, onComplete }: CompletionStageProps) {
     electron.ipcRenderer.invoke('shell:openTerminal', process.cwd());
   };
 
+  if (!config) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto">
+        <div className="text-center">
+          <p className="text-slate-400">Loading completion information...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-4xl mx-auto animate-in fade-in duration-300">
       <div className="text-center mb-12">

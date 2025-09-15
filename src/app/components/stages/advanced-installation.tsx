@@ -126,6 +126,17 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
     }
   };
 
+  const waitForPromptResponse = (): Promise<void> => {
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        if (!isPaused) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 100);
+    });
+  };
+
   const processCommand = async (command: InstallCommand): Promise<void> => {
     // Check condition
     if (command.condition && !evaluateCondition(command.condition)) {
@@ -136,18 +147,13 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
     // Handle different command types
     if (command.type === 'prompt') {
       // Show interactive prompt
-      setIsPaused(true);
+      addLine('info', `⌨ User input required: ${command.description}`);
       setCurrentPrompt(command);
+      setIsPaused(true);
       
       // Wait for user input
-      return new Promise((resolve) => {
-        const checkInterval = setInterval(() => {
-          if (!currentPrompt) {
-            clearInterval(checkInterval);
-            resolve();
-          }
-        }, 100);
-      });
+      await waitForPromptResponse();
+      return;
     }
 
     if (command.type === 'display') {
@@ -162,7 +168,12 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
     }
 
     // Default command execution
-    if (command.cmd) {
+    if (!command.type || command.type === 'command') {
+      if (!command.cmd) {
+        addLine('error', `✗ No command specified for: ${command.description}`);
+        return;
+      }
+      
       addLine('command', `$ ${command.description}`);
       
       const result = await electron.ipcRenderer.invoke('installer:runCommand', command, allVariables);

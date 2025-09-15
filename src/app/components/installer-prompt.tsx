@@ -129,8 +129,7 @@ export function InstallerPrompt({ prompt, variables, onSubmit }: InstallerPrompt
           <div className="flex gap-4">
             <Button
               onClick={() => {
-                setValue(true);
-                handleSubmit();
+                onSubmit(true);
               }}
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
             >
@@ -138,8 +137,7 @@ export function InstallerPrompt({ prompt, variables, onSubmit }: InstallerPrompt
             </Button>
             <Button
               onClick={() => {
-                setValue(false);
-                handleSubmit();
+                onSubmit(false);
               }}
               variant="outline"
               className="flex-1 bg-transparent border-slate-600 text-slate-300 hover:bg-slate-800"

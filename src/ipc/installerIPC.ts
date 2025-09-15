@@ -117,7 +117,8 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
       // Replace variables in command
       let processedCommand = command.cmd || '';
       for (const [key, value] of Object.entries(variables)) {
-        processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), value);
+        const replacementValue = value !== undefined && value !== null ? String(value) : '';
+        processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), replacementValue);
       }
 
       // List of actually safe commands that can run without explicit safe flag
@@ -167,9 +168,10 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
     return new Promise((resolve) => {
       try {
         // Replace variables in command
-        let processedCommand = command.cmd;
+        let processedCommand = command.cmd || '';
         for (const [key, value] of Object.entries(variables)) {
-          processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), value);
+          const replacementValue = value !== undefined && value !== null ? String(value) : '';
+          processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), replacementValue);
         }
 
         // For safety, only run commands marked as safe or use echo
@@ -306,7 +308,8 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
             // Replace variables in command
             let processedCommand = command.cmd || '';
             for (const [key, value] of Object.entries(userConfig)) {
-              processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
+              const replacementValue = value !== undefined && value !== null ? String(value) : '';
+              processedCommand = processedCommand.replace(new RegExp(`{{${key}}}`, 'g'), replacementValue);
             }
 
             // List of actually safe commands

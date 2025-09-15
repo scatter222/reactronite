@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Check, ChevronRight, Package2, Settings, Terminal, FileCheck, Shield } from 'lucide-react';
 import { DynamicConfigurationStage } from '@/app/components/stages/dynamic-configuration';
 import { PreChecksStage } from '@/app/components/stages/pre-checks';
-import { RealInstallationStage } from '@/app/components/stages/real-installation';
+import { AdvancedInstallationStage } from '@/app/components/stages/advanced-installation';
 import { CompletionStage } from '@/app/components/stages/completion';
 import { useNavigate } from 'react-router-dom';
 import type { UserConfig } from '@/app/types/installer-config';
@@ -79,7 +79,7 @@ export function InstallerScreen() {
         );
       case 'install':
         return (
-          <RealInstallationStage 
+          <AdvancedInstallationStage 
             config={userConfig}
             onNext={handleNext}
             onBack={handleBack}
@@ -88,7 +88,7 @@ export function InstallerScreen() {
       case 'complete':
         return (
           <CompletionStage 
-            config={userConfig as InstallConfig}
+            config={userConfig}
             onComplete={handleComplete}
           />
         );
