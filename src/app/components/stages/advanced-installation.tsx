@@ -30,6 +30,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
   const [currentPrompt, setCurrentPrompt] = useState<InstallCommand | null>(null);
   const [currentDisplay, setCurrentDisplay] = useState<InstallCommand | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false); // Use ref to avoid closure issues
   const terminalRef = useRef<HTMLDivElement>(null);
 
   // Combine user config with runtime variables
@@ -129,7 +130,8 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
   const waitForPromptResponse = (): Promise<void> => {
     return new Promise((resolve) => {
       const checkInterval = setInterval(() => {
-        if (!isPaused) {
+        // Use ref to avoid closure issues - ref always has current value
+        if (!isPausedRef.current) {
           clearInterval(checkInterval);
           resolve();
         }
@@ -150,6 +152,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       addLine('info', `⌨ User input required: ${command.description}`);
       setCurrentPrompt(command);
       setIsPaused(true);
+      isPausedRef.current = true; // Update ref immediately for reliable checking
 
       // Wait for user input - don't continue until prompt is handled
       await waitForPromptResponse();
@@ -235,10 +238,9 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
 
     // Clear prompt first, then unpause to ensure proper sequencing
     setCurrentPrompt(null);
-    // Small delay to ensure UI updates before continuing
-    setTimeout(() => {
-      setIsPaused(false);
-    }, 50);
+    // Update both state and ref to ensure proper synchronization
+    setIsPaused(false);
+    isPausedRef.current = false; // This is what the wait function actually checks
   };
 
   const runInstallation = async () => {
@@ -263,7 +265,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
 
           // Double-check: ensure we're not paused before continuing
           // This handles any edge cases where isPaused might still be true
-          while (isPaused) {
+          while (isPausedRef.current) {
             await new Promise(resolve => setTimeout(resolve, 100));
           }
 
