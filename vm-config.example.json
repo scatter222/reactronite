@@ -1,0 +1,358 @@
+{
+  "version": "1.0",
+  "vms": [
+    {
+      "name": "vm-controller",
+      "description": "Main controller VM for the cluster",
+      "domainXmlPath": "/opt/vms/definitions/controller.xml",
+      "priority": 1,
+      "autoStart": true,
+      "autoStartDelay": 0,
+      "tags": ["controller", "infrastructure"],
+
+      "network": {
+        "type": "bridge",
+        "bridge": "br0",
+        "ip": "192.168.100.10",
+        "gateway": "192.168.100.1",
+        "dns": ["8.8.8.8", "8.8.4.4"]
+      },
+
+      "resources": {
+        "cpus": 4,
+        "memory": "4G",
+        "disk": "50G"
+      },
+
+      "postBoot": {
+        "ssh": {
+          "user": "root",
+          "keyPath": "/home/user/.ssh/vm_key",
+          "port": 22
+        },
+
+        "waitFor": [
+          {
+            "type": "port",
+            "target": "22",
+            "timeout": 120,
+            "retryInterval": 5
+          },
+          {
+            "type": "http",
+            "target": "http://192.168.100.10:8080/health",
+            "expectedResponse": "200",
+            "timeout": 180
+          }
+        ],
+
+        "files": [
+          {
+            "source": "/opt/configs/controller/agent.conf",
+            "destination": "/etc/agent/agent.conf",
+            "permissions": "644",
+            "owner": "root",
+            "group": "root",
+            "template": true,
+            "variables": {
+              "CLUSTER_ID": "{{cluster_id}}",
+              "NODE_ROLE": "controller"
+            }
+          },
+          {
+            "source": "/opt/scripts/init-controller.sh",
+            "destination": "/root/init-controller.sh",
+            "permissions": "755"
+          }
+        ],
+
+        "commands": [
+          {
+            "cmd": "hostnamectl set-hostname vm-controller",
+            "description": "Set hostname"
+          },
+          {
+            "cmd": "systemctl restart network",
+            "description": "Restart network service"
+          },
+          {
+            "cmd": "/root/init-controller.sh",
+            "description": "Initialize controller",
+            "timeout": 300,
+            "retries": 2,
+            "retryDelay": 10
+          },
+          {
+            "cmd": "systemctl start agent && systemctl enable agent",
+            "description": "Start and enable agent service"
+          }
+        ]
+      },
+
+      "hooks": {
+        "beforeCreate": [
+          "qemu-img create -f qcow2 /var/lib/libvirt/images/vm-controller.qcow2 50G"
+        ],
+        "afterStart": [
+          "echo 'Controller VM started' | logger -t vm-manager"
+        ]
+      }
+    },
+
+    {
+      "name": "vm-worker-1",
+      "description": "Worker node 1",
+      "depends_on": ["vm-controller"],
+      "domainXmlPath": "/opt/vms/definitions/worker.xml",
+      "priority": 10,
+      "autoStart": true,
+      "autoStartDelay": 30,
+      "tags": ["worker", "compute"],
+
+      "network": {
+        "type": "bridge",
+        "bridge": "br0",
+        "ip": "192.168.100.20",
+        "gateway": "192.168.100.1",
+        "dns": ["192.168.100.10", "8.8.8.8"]
+      },
+
+      "resources": {
+        "cpus": 8,
+        "memory": "16G",
+        "disk": "100G"
+      },
+
+      "postBoot": {
+        "ssh": {
+          "user": "root",
+          "keyPath": "/home/user/.ssh/vm_key",
+          "port": 22
+        },
+
+        "agent": {
+          "installScript": "/opt/scripts/install-agent.sh",
+          "configPath": "/etc/agent/agent.conf"
+        },
+
+        "waitFor": [
+          {
+            "type": "port",
+            "target": "22",
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "ping -c 1 192.168.100.10",
+            "timeout": 60,
+            "retryInterval": 5
+          }
+        ],
+
+        "files": [
+          {
+            "source": "/opt/configs/worker/agent.conf",
+            "destination": "/etc/agent/agent.conf",
+            "template": true,
+            "variables": {
+              "CONTROLLER_IP": "192.168.100.10",
+              "NODE_ROLE": "worker",
+              "NODE_ID": "worker-1"
+            }
+          }
+        ],
+
+        "commands": [
+          {
+            "cmd": "hostnamectl set-hostname vm-worker-1",
+            "description": "Set hostname"
+          },
+          {
+            "cmd": "curl -sf http://192.168.100.10:8080/join -d '{\"node\": \"worker-1\", \"ip\": \"192.168.100.20\"}'",
+            "description": "Register with controller",
+            "retries": 3,
+            "retryDelay": 10
+          },
+          {
+            "cmd": "/opt/scripts/install-agent.sh",
+            "description": "Install agent",
+            "timeout": 180
+          },
+          {
+            "cmd": "systemctl start agent && systemctl enable agent",
+            "description": "Start agent service"
+          }
+        ]
+      },
+
+      "snapshots": {
+        "autoSnapshot": true,
+        "snapshotBeforeChanges": true,
+        "maxSnapshots": 3
+      }
+    },
+
+    {
+      "name": "vm-storage",
+      "description": "Storage node for distributed storage",
+      "depends_on": ["vm-controller"],
+      "domainXmlPath": "/opt/vms/definitions/storage.xml",
+      "priority": 5,
+      "autoStart": true,
+      "autoStartDelay": 15,
+      "tags": ["storage", "infrastructure"],
+
+      "network": {
+        "type": "bridge",
+        "bridge": "br0",
+        "ip": "192.168.100.30",
+        "gateway": "192.168.100.1"
+      },
+
+      "resources": {
+        "cpus": 4,
+        "memory": "8G",
+        "disk": "500G",
+        "additionalDisks": [
+          "/dev/sdb",
+          "/dev/sdc"
+        ]
+      },
+
+      "postBoot": {
+        "ssh": {
+          "user": "admin",
+          "password": "{{storage_password}}",
+          "port": 22
+        },
+
+        "waitFor": [
+          {
+            "type": "port",
+            "target": "22",
+            "timeout": 120
+          },
+          {
+            "type": "file",
+            "target": "/dev/sdb",
+            "timeout": 30
+          }
+        ],
+
+        "commands": [
+          {
+            "cmd": "hostnamectl set-hostname vm-storage",
+            "description": "Set hostname",
+            "user": "root"
+          },
+          {
+            "cmd": "mkfs.xfs /dev/sdb && mkfs.xfs /dev/sdc",
+            "description": "Format storage disks",
+            "user": "root",
+            "condition": "{{format_disks}} === true"
+          },
+          {
+            "cmd": "mkdir -p /mnt/storage1 /mnt/storage2",
+            "description": "Create mount points",
+            "user": "root"
+          },
+          {
+            "cmd": "mount /dev/sdb /mnt/storage1 && mount /dev/sdc /mnt/storage2",
+            "description": "Mount storage disks",
+            "user": "root"
+          },
+          {
+            "cmd": "echo '/dev/sdb /mnt/storage1 xfs defaults 0 0' >> /etc/fstab",
+            "description": "Add to fstab",
+            "user": "root"
+          },
+          {
+            "cmd": "echo '/dev/sdc /mnt/storage2 xfs defaults 0 0' >> /etc/fstab",
+            "description": "Add to fstab",
+            "user": "root"
+          }
+        ]
+      }
+    }
+  ],
+
+  "defaults": {
+    "network": {
+      "type": "bridge",
+      "bridge": "br0",
+      "gateway": "192.168.100.1",
+      "dns": ["8.8.8.8", "8.8.4.4"]
+    },
+    "resources": {
+      "cpus": 2,
+      "memory": "4G",
+      "disk": "20G"
+    },
+    "postBoot": {
+      "ssh": {
+        "user": "root",
+        "port": 22
+      }
+    }
+  },
+
+  "variables": {
+    "cluster_id": "prod-cluster-001",
+    "storage_password": "change-me-in-production",
+    "format_disks": true,
+    "environment": "production"
+  },
+
+  "profiles": {
+    "minimal": {
+      "description": "Minimal setup with just controller",
+      "vms": ["vm-controller"]
+    },
+    "standard": {
+      "description": "Standard setup with controller and two workers",
+      "vms": ["vm-controller", "vm-worker-1", "vm-storage"]
+    },
+    "full": {
+      "description": "Full cluster setup",
+      "vms": ["vm-controller", "vm-storage", "vm-worker-1", "vm-worker-2", "vm-worker-3"],
+      "variables": {
+        "cluster_size": "large"
+      }
+    }
+  },
+
+  "environments": {
+    "development": {
+      "vm-controller": {
+        "resources": {
+          "cpus": 2,
+          "memory": "2G",
+          "disk": "20G"
+        }
+      },
+      "vm-worker-1": {
+        "resources": {
+          "cpus": 4,
+          "memory": "8G",
+          "disk": "50G"
+        }
+      }
+    },
+    "production": {
+      "vm-controller": {
+        "resources": {
+          "cpus": 8,
+          "memory": "16G",
+          "disk": "100G"
+        }
+      },
+      "vm-worker-1": {
+        "resources": {
+          "cpus": 16,
+          "memory": "32G",
+          "disk": "200G"
+        }
+      }
+    }
+  }
+}
