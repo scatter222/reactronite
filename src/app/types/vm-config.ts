@@ -31,34 +31,18 @@ export interface VMConfig {
     [key: string]: any; // Allow any additional resource properties
   };
 
-  // Post-boot configuration
+  // Post-boot configuration (uses QEMU Guest Agent)
   postBoot?: {
-    // Files to be added to the VM
+    // Files to transfer to the VM via guest agent
     files?: FileTransfer[];
 
-    // Commands to run after boot
+    // Commands to run after boot via guest agent
     commands?: PostBootCommand[];
 
     // Wait conditions before considering VM ready
     waitFor?: WaitCondition[];
 
-    // SSH configuration for accessing the VM
-    ssh?: {
-      user?: string;
-      password?: string;
-      keyPath?: string;
-      port?: number;
-      [key: string]: any;
-    };
-
-    // Agent configuration if using an agent for post-boot
-    agent?: {
-      installScript?: string;
-      configPath?: string;
-      [key: string]: any;
-    };
-
-    [key: string]: any; // Allow any additional post-boot properties
+    [key: string]: any;
   };
 
   // VM lifecycle hooks
@@ -125,8 +109,8 @@ export interface PostBootCommand {
 }
 
 export interface WaitCondition {
-  type: 'port' | 'http' | 'https' | 'command' | 'file' | 'process';
-  target?: string; // Port number, URL, file path, process name, etc.
+  type: 'agent' | 'port' | 'http' | 'https' | 'command' | 'file';
+  target?: string; // Port number, URL, file path, etc.
   timeout?: number; // Max wait time in seconds
   retryInterval?: number; // Time between checks in seconds
   expectedResponse?: string; // For HTTP/HTTPS checks

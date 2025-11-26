@@ -3,6 +3,7 @@ import Titlebar from '@/app/components/titlebar';
 import { useRendererListener } from '@/app/hooks';
 import { SplashScreen } from '@/app/screens/splash';
 import { InstallerScreen } from '@/app/screens/installer';
+import { VMScreen } from '@/app/screens/vms';
 import { MenuChannels } from '@/channels/menuChannels';
 
 import { Route, HashRouter as Router, Routes } from 'react-router-dom';
@@ -23,6 +24,7 @@ export default function App () {
             <Routes>
               <Route path='/' Component={SplashScreen} />
               <Route path='/installer' Component={InstallerScreen} />
+              <Route path='/vms' Component={VMScreen} />
             </Routes>
           </main>
         </div>

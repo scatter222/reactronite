@@ -1,13 +1,9 @@
 import { Button } from '@/app/components/ui/button';
-import { Package2 } from 'lucide-react';
+import { Package2, Server } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export function SplashScreen() {
   const navigate = useNavigate();
-
-  const handleGetStarted = () => {
-    navigate('/installer');
-  };
 
   return (
     <div className="h-full flex items-center justify-center relative overflow-hidden">
@@ -18,23 +14,34 @@ export function SplashScreen() {
             <Package2 className="w-12 h-12 text-white" />
           </div>
         </div>
-        
+
         <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">
           Installation Wizard
         </h1>
-        
+
         <p className="text-lg text-slate-400 mb-12 leading-relaxed">
-          Get your application up and running in just a few simple steps. 
+          Get your application up and running in just a few simple steps.
           We'll guide you through the entire process.
         </p>
-        
-        <Button
-          size="lg"
-          onClick={handleGetStarted}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 text-lg font-medium shadow-lg shadow-blue-600/25 transition-all hover:shadow-xl hover:shadow-blue-600/30"
-        >
-          Get Started
-        </Button>
+
+        <div className="flex gap-4 justify-center">
+          <Button
+            size="lg"
+            onClick={() => navigate('/installer')}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 text-lg font-medium shadow-lg shadow-blue-600/25 transition-all hover:shadow-xl hover:shadow-blue-600/30"
+          >
+            Get Started
+          </Button>
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={() => navigate('/vms')}
+            className="px-8 py-6 text-lg font-medium"
+          >
+            <Server className="w-5 h-5 mr-2" />
+            Manage VMs
+          </Button>
+        </div>
       </div>
     </div>
   );
