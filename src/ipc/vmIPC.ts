@@ -408,6 +408,21 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
     }
   }
 
+  async function guestExecAs(
+  vmName: string,
+  user: string,
+  command: PostBootCommand,
+  loginShell = true
+): Promise<VMOperationResult> {
+  const escapedCmd = command.cmd.replace(/'/g, `'\\''`);
+  const suFlag = loginShell ? ' -' : '';
+  const wrappedCommand: PostBootCommand = {
+    ...command,
+    cmd: `su${suFlag} ${user} -c '${escapedCmd}'`,
+  };
+  return guestExec(vmName, wrappedCommand);
+}
+
   // IPC Handlers
   ipcMain.handle('vm:getConfig', async () => {
     try {
