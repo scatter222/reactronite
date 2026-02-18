@@ -1,7 +1,6 @@
 import { ThemeProvider } from '@/app/components/theme-provider';
 import Titlebar from '@/app/components/titlebar';
 import { useRendererListener } from '@/app/hooks';
-import { SplashScreen } from '@/app/screens/splash';
 import { InstallerScreen } from '@/app/screens/installer';
 import { VMScreen } from '@/app/screens/vms';
 import { MenuChannels } from '@/channels/menuChannels';
@@ -22,7 +21,7 @@ export default function App () {
           <Titlebar />
           <main className='flex-1 overflow-auto'>
             <Routes>
-              <Route path='/' Component={SplashScreen} />
+              <Route path='/' Component={VMScreen} />
               <Route path='/installer' Component={InstallerScreen} />
               <Route path='/vms' Component={VMScreen} />
             </Routes>

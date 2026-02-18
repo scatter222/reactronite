@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Play, Square, Trash2, RefreshCw, Server, Terminal, Upload } from 'lucide-react';
+import { Play, Square, Trash2, RefreshCw, Server, Terminal, Upload, Rocket } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
-import type { VMState, VMOperationResult } from '@/app/types/vm-config';
+import type { VMState, VMOperationResult, VMConfigFile } from '@/app/types/vm-config';
 
 export function VMScreen() {
   const [vms, setVMs] = useState<VMState[]>([]);
   const [loading, setLoading] = useState(true);
   const [output, setOutput] = useState<string[]>([]);
   const [selectedVM, setSelectedVM] = useState<string | null>(null);
+  const [deploying, setDeploying] = useState(false);
 
   const refreshVMs = async () => {
     setLoading(true);
@@ -22,6 +23,44 @@ export function VMScreen() {
 
   const addOutput = (msg: string) => {
     setOutput(prev => [...prev.slice(-100), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  };
+
+  const deployConfig = async () => {
+    setDeploying(true);
+    try {
+      const config: VMConfigFile = await electron.ipcRenderer.invoke('vm:getConfig');
+      if (!config.vms || config.vms.length === 0) {
+        addOutput('No VMs defined in vm-config.json');
+        setDeploying(false);
+        return;
+      }
+
+      const existingStates = await electron.ipcRenderer.invoke('vm:getStates');
+      const existingNames = new Set((existingStates || []).map((s: VMState) => s.name));
+
+      for (const vm of config.vms) {
+        if (existingNames.has(vm.name)) {
+          addOutput(`${vm.name} already defined, skipping create`);
+        } else {
+          addOutput(`Creating ${vm.name}...`);
+          const createResult: VMOperationResult = await electron.ipcRenderer.invoke('vm:create', vm);
+          if (!createResult.success) {
+            addOutput(`Failed to create ${vm.name}: ${createResult.error}`);
+            continue;
+          }
+          addOutput(`${vm.name} created`);
+        }
+
+        addOutput(`Starting ${vm.name}...`);
+        const startResult: VMOperationResult = await electron.ipcRenderer.invoke('vm:start', vm.name);
+        addOutput(startResult.success ? `${vm.name} started` : `Failed to start ${vm.name}: ${startResult.error}`);
+      }
+
+      await refreshVMs();
+    } catch (err) {
+      addOutput(`Deploy error: ${err}`);
+    }
+    setDeploying(false);
   };
 
   useEffect(() => {
@@ -110,10 +149,16 @@ export function VMScreen() {
           <Server className="w-6 h-6 text-blue-400" />
           <h1 className="text-xl font-semibold text-white">Virtual Machines</h1>
         </div>
-        <Button variant="outline" size="sm" onClick={refreshVMs} disabled={loading}>
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={deployConfig} disabled={deploying}>
+            <Rocket className={`w-4 h-4 ${deploying ? 'animate-pulse' : ''}`} />
+            {deploying ? 'Deploying...' : 'Deploy'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={refreshVMs} disabled={loading}>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">

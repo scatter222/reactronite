@@ -19,6 +19,8 @@ const execAsync = promisify(exec);
 export function registerVMHandlers(mainWindow: BrowserWindow) {
   let vmConfig: VMConfigFile | null = null;
   const vmStates: Map<string, VMState> = new Map();
+  // Track VMs where we've already fixed the guest agent to avoid repeated attempts
+  const agentFixedVMs: Set<string> = new Set();
 
   // Helper: Apply variable substitution to a string
   function applyVariables(content: string, variables: Record<string, any>): string {
@@ -66,20 +68,108 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
     }
   }
 
+  // Helper: Build SSH command string for a VM
+  function buildSSHCommand(vm: VMConfig, ip: string, remoteCmd: string): string {
+    const port = vm.ssh?.port || 22;
+    const user = vm.ssh?.username || 'root';
+    const sshOpts = '-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR';
+
+    if (vm.ssh?.keyPath) {
+      return `ssh ${sshOpts} -p ${port} -i ${vm.ssh.keyPath} ${user}@${ip} ${JSON.stringify(remoteCmd)}`;
+    } else if (vm.ssh?.password) {
+      return `sshpass -p ${JSON.stringify(vm.ssh.password)} ssh ${sshOpts} -p ${port} ${user}@${ip} ${JSON.stringify(remoteCmd)}`;
+    }
+    throw new Error(`No SSH credentials configured for ${vm.name}`);
+  }
+
+  // Helper: Execute a command on a VM via SSH
+  async function sshExec(vm: VMConfig, remoteCmd: string): Promise<{ stdout: string; stderr: string }> {
+    const state = await getVMState(vm.name);
+    if (!state.ipAddress) {
+      throw new Error(`Cannot SSH to ${vm.name}: no IP address available`);
+    }
+    const cmd = buildSSHCommand(vm, state.ipAddress, remoteCmd);
+    return execAsync(cmd, { timeout: 30000 });
+  }
+
+  // Helper: Fix guest agent RPC restrictions via SSH
+  async function fixGuestAgentViaSSH(vm: VMConfig): Promise<boolean> {
+    if (!vm.ssh) return false;
+    if (agentFixedVMs.has(vm.name)) return false; // Already tried
+
+    try {
+      mainWindow.webContents.send('vm:commandOutput', {
+        vmName: vm.name,
+        type: 'stderr',
+        data: 'guest-exec is disabled — attempting SSH fix of guest agent config...'
+      });
+
+      // Clear restrictive RPC filtering and restart the agent
+      await sshExec(vm, `sed -i 's/^FILTER_RPC_ARGS=.*/FILTER_RPC_ARGS=""/' /etc/sysconfig/qemu-ga && systemctl restart qemu-guest-agent`);
+
+      agentFixedVMs.add(vm.name);
+
+      // Wait for the agent to come back up after restart
+      const start = Date.now();
+      while (Date.now() - start < 15000) {
+        if (await isAgentReady(vm.name)) {
+          mainWindow.webContents.send('vm:commandOutput', {
+            vmName: vm.name,
+            type: 'stdout',
+            data: 'Guest agent fixed and restarted successfully'
+          });
+          return true;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
+      mainWindow.webContents.send('vm:commandOutput', {
+        vmName: vm.name,
+        type: 'stderr',
+        data: 'Guest agent did not come back after restart'
+      });
+      return false;
+    } catch (error: any) {
+      mainWindow.webContents.send('vm:commandOutput', {
+        vmName: vm.name,
+        type: 'stderr',
+        data: `SSH fix failed: ${error.message}`
+      });
+      return false;
+    }
+  }
+
   // Helper: Execute command via guest agent
   async function guestExec(vmName: string, command: PostBootCommand): Promise<VMOperationResult> {
     try {
-      // Build the guest-exec command
-      const args = ['-c', command.cmd];
+      // Base64-encode the command to completely avoid shell quoting issues.
+      // This means nested quotes, special chars, etc. all pass through cleanly.
+      // The guest-exec JSON uses the b64 string (safe chars only: A-Za-z0-9+/=),
+      // and bash decodes + executes it inside the VM.
+      const cmdB64 = Buffer.from(command.cmd).toString('base64');
+
+      let shellCmd: string;
+      if (command.user) {
+        // su - <user> gives a full login shell (sources /etc/profile, ~/.bash_profile, etc.)
+        // The $() substitution decodes the command, su passes it to bash via -c
+        shellCmd = `su - ${command.user} -c "$(echo ${cmdB64} | base64 -d)"`;
+      } else {
+        shellCmd = `eval "$(echo ${cmdB64} | base64 -d)"`;
+      }
+
+      const args = ['-l', '-c', shellCmd];
       const execPayload = {
         execute: 'guest-exec',
         arguments: {
-          path: '/bin/sh',
+          path: '/bin/bash',
           arg: args,
           'capture-output': true
         }
       };
 
+      // The JSON payload is safe to single-quote on the shell because:
+      // - JSON keys/values use double quotes (no conflict with outer single quotes)
+      // - The command is base64-encoded (only A-Za-z0-9+/= chars, no quotes)
       const { stdout: execResult } = await execAsync(
         `virsh qemu-agent-command ${vmName} '${JSON.stringify(execPayload)}'`
       );
@@ -132,6 +222,18 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
         timestamp: new Date()
       };
     } catch (error: any) {
+      // Detect guest-exec disabled and attempt SSH fix
+      if (error.message?.includes('the command is not allowed') || error.message?.includes('has been disabled')) {
+        const vm = vmConfig?.vms.find(v => v.name === vmName);
+        if (vm?.ssh && !agentFixedVMs.has(vmName)) {
+          const fixed = await fixGuestAgentViaSSH(vm);
+          if (fixed) {
+            // Retry the command after fixing
+            return guestExec(vmName, command);
+          }
+        }
+      }
+
       return {
         success: false,
         vmName,
@@ -407,21 +509,6 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
       return { success: false, vmName, operation: 'start', error: error.message, timestamp: new Date() };
     }
   }
-
-  async function guestExecAs(
-  vmName: string,
-  user: string,
-  command: PostBootCommand,
-  loginShell = true
-): Promise<VMOperationResult> {
-  const escapedCmd = command.cmd.replace(/'/g, `'\\''`);
-  const suFlag = loginShell ? ' -' : '';
-  const wrappedCommand: PostBootCommand = {
-    ...command,
-    cmd: `su${suFlag} ${user} -c '${escapedCmd}'`,
-  };
-  return guestExec(vmName, wrappedCommand);
-}
 
   // IPC Handlers
   ipcMain.handle('vm:getConfig', async () => {

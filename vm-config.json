@@ -1,0 +1,54 @@
+{
+  "version": "1.0",
+  "vms": [
+    {
+      "name": "oracle-linux-9",
+      "description": "Oracle Linux 9 test VM",
+      "domainXmlPath": "./oracle-linux-9.xml",
+      "ssh": {
+        "username": "root",
+        "password": "packer"
+      },
+      "postBoot": {
+        "waitFor": [
+          { "type": "agent", "timeout": 120 }
+        ],
+        "commands": [
+          {
+            "cmd": "hostnamectl set-hostname oracle-test",
+            "description": "Set hostname"
+          },
+          {
+            "cmd": "cat /etc/os-release",
+            "description": "Show OS release info"
+          },
+          {
+            "cmd": "whoami",
+            "description": "Show current user",
+            "user": "packer"
+          },
+          {
+            "cmd": "echo $PATH",
+            "description": "Show PATH as packer user",
+            "user": "packer"
+          },
+          {
+            "cmd": "which ansible || echo 'ansible not found in PATH'",
+            "description": "Check ansible availability",
+            "user": "packer"
+          },
+          {
+            "cmd": "ip addr show",
+            "description": "Show network configuration"
+          }
+        ]
+      }
+    }
+  ],
+  "profiles": {
+    "test": {
+      "description": "Test profile with Oracle Linux 9",
+      "vms": ["oracle-linux-9"]
+    }
+  }
+}

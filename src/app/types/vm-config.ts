@@ -74,6 +74,14 @@ export interface VMConfig {
     [key: string]: any;
   };
 
+  // SSH credentials for fallback access (e.g. fixing guest agent config)
+  ssh?: {
+    username: string;
+    password?: string;
+    keyPath?: string;
+    port?: number; // default 22
+  };
+
   // Allow any additional properties for flexibility
   [key: string]: any;
 }
