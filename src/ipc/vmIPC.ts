@@ -139,86 +139,223 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
     }
   }
 
-  // Helper: Execute command via guest agent
+  // Low-level helper: run a command via guest-exec with capture-output, poll for
+  // completion, and return stdout/stderr/exitcode. Used for small helper commands
+  // (tail, cat, rm) where output fits comfortably in the guest agent buffer.
+  async function guestExecRaw(
+    vmName: string,
+    shellCmd: string,
+    opts: { timeout?: number; captureOutput?: boolean } = {}
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    const captureOutput = opts.captureOutput ?? true;
+    const timeout = (opts.timeout || 30) * 1000;
+
+    const execPayload = {
+      execute: 'guest-exec',
+      arguments: {
+        path: '/bin/bash',
+        arg: ['-l', '-c', shellCmd],
+        'capture-output': captureOutput
+      }
+    };
+
+    const { stdout: execResult } = await execAsync(
+      `virsh qemu-agent-command ${vmName} '${JSON.stringify(execPayload)}'`
+    );
+    const pid = JSON.parse(execResult).return.pid;
+
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const statusPayload = { execute: 'guest-exec-status', arguments: { pid } };
+      const { stdout: statusResult } = await execAsync(
+        `virsh qemu-agent-command ${vmName} '${JSON.stringify(statusPayload)}'`
+      );
+      const status = JSON.parse(statusResult).return;
+
+      if (status.exited) {
+        return {
+          stdout: status['out-data'] ? Buffer.from(status['out-data'], 'base64').toString() : '',
+          stderr: status['err-data'] ? Buffer.from(status['err-data'], 'base64').toString() : '',
+          exitCode: status.exitcode ?? 0
+        };
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    throw new Error('Command timed out');
+  }
+
+  // Helper: Execute command via guest agent.
+  // Output is redirected to a temp file inside the guest to avoid the guest agent's
+  // output buffer limit. The file is tailed periodically to stream output live to
+  // the renderer. This allows arbitrarily large command output (e.g. ansible runs).
   async function guestExec(vmName: string, command: PostBootCommand): Promise<VMOperationResult> {
     try {
-      // Base64-encode the command to completely avoid shell quoting issues.
-      // This means nested quotes, special chars, etc. all pass through cleanly.
-      // The guest-exec JSON uses the b64 string (safe chars only: A-Za-z0-9+/=),
-      // and bash decodes + executes it inside the VM.
       const cmdB64 = Buffer.from(command.cmd).toString('base64');
 
-      let shellCmd: string;
+      let innerCmd: string;
       if (command.user) {
-        // su - <user> gives a full login shell (sources /etc/profile, ~/.bash_profile, etc.)
-        // The $() substitution decodes the command, su passes it to bash via -c
-        shellCmd = `su - ${command.user} -c "$(echo ${cmdB64} | base64 -d)"`;
+        innerCmd = `su - ${command.user} -c "$(echo ${cmdB64} | base64 -d)"`;
       } else {
-        shellCmd = `eval "$(echo ${cmdB64} | base64 -d)"`;
+        innerCmd = `eval "$(echo ${cmdB64} | base64 -d)"`;
       }
 
-      const args = ['-l', '-c', shellCmd];
+      // Wrap the command to redirect output to a temp file.
+      // - LOGFILE gets a unique name based on the bash PID
+      // - stdout+stderr are redirected to the file
+      // - The real exit code is saved to a .exit companion file
+      // - capture-output is false so the guest agent buffers nothing
+      const wrapperCmd = [
+        'LOGFILE=/tmp/rn-exec-$$',
+        `(${innerCmd}) > "$LOGFILE" 2>&1`,
+        'echo $? > "${LOGFILE}.exit"'
+      ].join('; ');
+
       const execPayload = {
         execute: 'guest-exec',
         arguments: {
           path: '/bin/bash',
-          arg: args,
-          'capture-output': true
+          arg: ['-l', '-c', wrapperCmd],
+          'capture-output': false
         }
       };
 
-      // The JSON payload is safe to single-quote on the shell because:
-      // - JSON keys/values use double quotes (no conflict with outer single quotes)
-      // - The command is base64-encoded (only A-Za-z0-9+/= chars, no quotes)
       const { stdout: execResult } = await execAsync(
         `virsh qemu-agent-command ${vmName} '${JSON.stringify(execPayload)}'`
       );
+      const guestPid = JSON.parse(execResult).return.pid;
 
-      const { return: execReturn } = JSON.parse(execResult);
-      const pid = execReturn.pid;
+      // We need to discover the bash PID inside the guest (used for the log filename).
+      // The wrapper uses $$ which is the bash PID, not the guest-agent PID.
+      // We'll wait a moment then look for the log file.
+      await new Promise(r => setTimeout(r, 500));
 
-      // Poll for completion
-      const timeout = (command.timeout || 60) * 1000;
-      const start = Date.now();
+      // Find the log file — there should be exactly one /tmp/rn-exec-* that's new
+      let logFile = '';
+      try {
+        const findResult = await guestExecRaw(vmName, 'ls -t /tmp/rn-exec-*.exit /tmp/rn-exec-[0-9]* 2>/dev/null | grep -v .exit | head -1', { timeout: 5 });
+        logFile = findResult.stdout.trim();
+      } catch { /* not ready yet */ }
 
-      while (Date.now() - start < timeout) {
-        const statusPayload = { execute: 'guest-exec-status', arguments: { pid } };
-        const { stdout: statusResult } = await execAsync(
-          `virsh qemu-agent-command ${vmName} '${JSON.stringify(statusPayload)}'`
-        );
-
-        const { return: status } = JSON.parse(statusResult);
-
-        if (status.exited) {
-          const stdout = status['out-data'] ? Buffer.from(status['out-data'], 'base64').toString() : '';
-          const stderr = status['err-data'] ? Buffer.from(status['err-data'], 'base64').toString() : '';
-          const exitCode = status.exitcode;
-          const expectedCode = command.expectedExitCode ?? 0;
-          const success = command.ignoreError || exitCode === expectedCode;
-
-          if (!command.sensitive) {
-            if (stdout) mainWindow.webContents.send('vm:commandOutput', { vmName, type: 'stdout', data: stdout });
-            if (stderr) mainWindow.webContents.send('vm:commandOutput', { vmName, type: 'stderr', data: stderr });
-          }
-
-          return {
-            success,
-            vmName,
-            operation: 'execute-command',
-            output: stdout + stderr,
-            error: success ? undefined : `Exit code ${exitCode}`,
-            timestamp: new Date()
-          };
-        }
-
-        await new Promise(r => setTimeout(r, 500));
+      // If we couldn't find it, fall back to checking by guest PID vicinity
+      if (!logFile) {
+        try {
+          // Try a broader search — the file should exist shortly
+          await new Promise(r => setTimeout(r, 1000));
+          const findResult = await guestExecRaw(vmName, 'ls -t /tmp/rn-exec-[0-9]* 2>/dev/null | grep -v .exit | head -1', { timeout: 5 });
+          logFile = findResult.stdout.trim();
+        } catch { /* still nothing */ }
       }
 
+      const timeout = (command.timeout || 60) * 1000;
+      const start = Date.now();
+      let byteOffset = 1; // tail -c uses 1-based offset
+      let allOutput = '';
+
+      // Poll loop: check if wrapper process exited + tail output file
+      while (Date.now() - start < timeout) {
+        // Check if the wrapper process has exited
+        const statusPayload = { execute: 'guest-exec-status', arguments: { pid: guestPid } };
+        let exited = false;
+        try {
+          const { stdout: statusResult } = await execAsync(
+            `virsh qemu-agent-command ${vmName} '${JSON.stringify(statusPayload)}'`
+          );
+          exited = JSON.parse(statusResult).return.exited;
+        } catch {
+          // guest-exec-status can fail if PID was already reaped — treat as exited
+          exited = true;
+        }
+
+        // Stream new output from the log file
+        if (logFile && !command.sensitive) {
+          try {
+            const tailResult = await guestExecRaw(
+              vmName,
+              `tail -c +${byteOffset} ${JSON.stringify(logFile)} 2>/dev/null`,
+              { timeout: 5 }
+            );
+            const chunk = tailResult.stdout;
+            if (chunk.length > 0) {
+              byteOffset += Buffer.byteLength(chunk);
+              allOutput += chunk;
+              mainWindow.webContents.send('vm:commandOutput', {
+                vmName,
+                type: 'stdout',
+                data: chunk
+              });
+            }
+          } catch { /* file may not exist yet or tail failed — ignore */ }
+        }
+
+        if (exited) break;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      // Process exited — do a final read to catch any remaining output
+      let exitCode = -1;
+
+      if (logFile) {
+        // Final output read
+        if (!command.sensitive) {
+          try {
+            const finalRead = await guestExecRaw(
+              vmName,
+              `tail -c +${byteOffset} ${JSON.stringify(logFile)} 2>/dev/null`,
+              { timeout: 10 }
+            );
+            if (finalRead.stdout.length > 0) {
+              allOutput += finalRead.stdout;
+              mainWindow.webContents.send('vm:commandOutput', {
+                vmName,
+                type: 'stdout',
+                data: finalRead.stdout
+              });
+            }
+          } catch { /* ignore */ }
+        }
+
+        // Read exit code
+        try {
+          const exitResult = await guestExecRaw(
+            vmName,
+            `cat ${JSON.stringify(logFile + '.exit')} 2>/dev/null`,
+            { timeout: 5 }
+          );
+          exitCode = parseInt(exitResult.stdout.trim(), 10);
+          if (isNaN(exitCode)) exitCode = -1;
+        } catch { /* couldn't read exit code */ }
+
+        // Cleanup temp files
+        try {
+          await guestExecRaw(
+            vmName,
+            `rm -f ${JSON.stringify(logFile)} ${JSON.stringify(logFile + '.exit')}`,
+            { timeout: 5 }
+          );
+        } catch { /* best-effort cleanup */ }
+      }
+
+      // If we never found the log file and the command timed out
+      if (Date.now() - start >= timeout && exitCode === -1) {
+        return {
+          success: false,
+          vmName,
+          operation: 'execute-command',
+          output: allOutput,
+          error: 'Command timed out',
+          timestamp: new Date()
+        };
+      }
+
+      const expectedCode = command.expectedExitCode ?? 0;
+      const success = command.ignoreError || exitCode === expectedCode;
+
       return {
-        success: false,
+        success,
         vmName,
         operation: 'execute-command',
-        error: 'Command timed out',
+        output: allOutput,
+        error: success ? undefined : `Exit code ${exitCode}`,
         timestamp: new Date()
       };
     } catch (error: any) {
@@ -228,7 +365,6 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
         if (vm?.ssh && !agentFixedVMs.has(vmName)) {
           const fixed = await fixGuestAgentViaSSH(vm);
           if (fixed) {
-            // Retry the command after fixing
             return guestExec(vmName, command);
           }
         }
