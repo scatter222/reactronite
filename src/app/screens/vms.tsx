@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Play, Square, Trash2, RefreshCw, Server, Terminal, Upload, Rocket } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import type { VMState, VMOperationResult, VMConfigFile } from '@/app/types/vm-config';
@@ -9,6 +9,8 @@ export function VMScreen() {
   const [output, setOutput] = useState<string[]>([]);
   const [selectedVM, setSelectedVM] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
+  const [hasDeployed, setHasDeployed] = useState(false);
+  const autoDeployRan = useRef(false);
 
   const refreshVMs = async () => {
     setLoading(true);
@@ -61,10 +63,16 @@ export function VMScreen() {
       addOutput(`Deploy error: ${err}`);
     }
     setDeploying(false);
+    setHasDeployed(true);
   };
 
   useEffect(() => {
-    refreshVMs();
+    refreshVMs().then(() => {
+      if (!autoDeployRan.current) {
+        autoDeployRan.current = true;
+        deployConfig();
+      }
+    });
 
     const handleCommandOutput = (_: any, data: { vmName: string; type: string; data: string }) => {
       addOutput(`[${data.vmName}] ${data.data.trim()}`);
@@ -152,7 +160,7 @@ export function VMScreen() {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={deployConfig} disabled={deploying}>
             <Rocket className={`w-4 h-4 ${deploying ? 'animate-pulse' : ''}`} />
-            {deploying ? 'Deploying...' : 'Deploy'}
+            {deploying ? 'Deploying...' : hasDeployed ? 'Redeploy' : 'Deploy'}
           </Button>
           <Button variant="outline" size="sm" onClick={refreshVMs} disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
