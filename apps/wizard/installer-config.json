@@ -1,0 +1,348 @@
+{
+  "installer": {
+    "name": "KVM Environment Setup",
+    "version": "1.0.0",
+    "description": "Configure this Oracle Linux host as a KVM virtualisation environment"
+  },
+  "preChecks": [
+    {
+      "name": "Operating System",
+      "command": "cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'",
+      "expectedPattern": "Oracle|Rocky|RHEL|CentOS|Ubuntu|Debian",
+      "errorMessage": "Unsupported operating system",
+      "safe": true
+    },
+    {
+      "name": "CPU Virtualisation Support",
+      "command": "grep -Ec '(vmx|svm)' /proc/cpuinfo",
+      "expectedPattern": "^[1-9]",
+      "errorMessage": "CPU does not support hardware virtualisation (vmx/svm)",
+      "safe": true
+    },
+    {
+      "name": "KVM Module Loaded",
+      "command": "lsmod | grep -c kvm",
+      "expectedPattern": "^[1-9]",
+      "errorMessage": "KVM kernel module is not loaded",
+      "safe": true
+    },
+    {
+      "name": "Available Memory",
+      "command": "free -g | awk '/^Mem:/{print $2}'",
+      "expectedPattern": "^[1-9]",
+      "errorMessage": "Insufficient memory — at least 4GB recommended",
+      "safe": true,
+      "type": "memory"
+    },
+    {
+      "name": "Available Disk Space",
+      "command": "df -BG / | awk 'NR==2{print $4}' | tr -d 'G'",
+      "expectedPattern": "^[2-9][0-9]|^[1-9][0-9]{2}",
+      "errorMessage": "Less than 20GB free disk space",
+      "safe": true,
+      "type": "diskSpace"
+    },
+    {
+      "name": "Libvirt Service",
+      "command": "systemctl is-active libvirtd.socket || systemctl is-active libvirtd",
+      "expectedPattern": "^active",
+      "errorMessage": "libvirtd service is not running",
+      "safe": true
+    }
+  ],
+  "configFields": [
+    {
+      "id": "hostname",
+      "label": "Host Name",
+      "type": "text",
+      "required": true,
+      "placeholder": "kvm-host-01",
+      "validation": "^[a-zA-Z0-9][a-zA-Z0-9-]*$",
+      "default": "kvm-host",
+      "description": "Hostname for this KVM host"
+    },
+    {
+      "id": "splunkNetworkName",
+      "label": "Splunk VM Network",
+      "type": "text",
+      "required": true,
+      "placeholder": "virbr-splunk",
+      "validation": "^[a-zA-Z][a-zA-Z0-9-]*$",
+      "default": "virbr-splunk",
+      "description": "Libvirt NAT network for the Splunk VM (192.168.110.0/24)"
+    },
+    {
+      "id": "ipaNetworkName",
+      "label": "FreeIPA VM Network",
+      "type": "text",
+      "required": true,
+      "placeholder": "virbr-ipa",
+      "validation": "^[a-zA-Z][a-zA-Z0-9-]*$",
+      "default": "virbr-ipa",
+      "description": "Libvirt NAT network for the FreeIPA VM (192.168.120.0/24)"
+    },
+    {
+      "id": "storagePoolPath",
+      "label": "Storage Pool Path",
+      "type": "text",
+      "required": true,
+      "placeholder": "/var/lib/libvirt/images",
+      "default": "/var/lib/libvirt/images",
+      "description": "Directory for VM disk images"
+    },
+    {
+      "id": "baseImagePath",
+      "label": "Base VM Image Path",
+      "type": "text",
+      "required": true,
+      "placeholder": "/path/to/oracle-desktop-9.qcow2",
+      "default": "/home/rhys/repos/blue-forge/virtual-machines/oracle-desktop/output-oracle-desktop/oracle-desktop-9.qcow2",
+      "description": "Path to the Oracle Linux 9 base qcow2 image (built by Packer)"
+    },
+    {
+      "id": "timezone",
+      "label": "System Timezone",
+      "type": "select",
+      "required": true,
+      "options": [
+        { "value": "UTC", "label": "UTC" },
+        { "value": "Australia/Sydney", "label": "Sydney (AEST)" },
+        { "value": "Australia/Melbourne", "label": "Melbourne (AEST)" },
+        { "value": "Australia/Brisbane", "label": "Brisbane (AEST)" },
+        { "value": "Australia/Perth", "label": "Perth (AWST)" },
+        { "value": "America/New_York", "label": "New York (EST)" },
+        { "value": "America/Los_Angeles", "label": "Los Angeles (PST)" },
+        { "value": "Europe/London", "label": "London (GMT)" }
+      ],
+      "default": "Australia/Sydney",
+      "description": "System timezone"
+    },
+    {
+      "id": "enableCockpit",
+      "label": "Install Cockpit Web Console",
+      "type": "boolean",
+      "default": true,
+      "description": "Web-based management UI on port 9090 for monitoring VMs"
+    },
+    {
+      "id": "enableAutoUpdates",
+      "label": "Enable Automatic Security Updates",
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically install security patches via dnf-automatic"
+    }
+  ],
+  "installSteps": [
+    {
+      "name": "System Configuration",
+      "description": "Configuring hostname and timezone",
+      "commands": [
+        {
+          "cmd": "sudo hostnamectl set-hostname {{hostname}}",
+          "description": "Setting hostname to {{hostname}}",
+          "safe": true
+        },
+        {
+          "cmd": "sudo timedatectl set-timezone {{timezone}}",
+          "description": "Setting timezone to {{timezone}}",
+          "safe": true
+        },
+        {
+          "cmd": "timedatectl",
+          "description": "Verifying time configuration",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Storage Pool Setup",
+      "description": "Configuring libvirt storage pool",
+      "commands": [
+        {
+          "cmd": "sudo mkdir -p {{storagePoolPath}}",
+          "description": "Creating storage directory",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh pool-define-as wizard-pool dir --target {{storagePoolPath}} 2>/dev/null || echo 'Pool may already exist'",
+          "description": "Defining storage pool",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh pool-autostart wizard-pool 2>/dev/null || true",
+          "description": "Setting pool to autostart",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh pool-start wizard-pool 2>/dev/null || echo 'Pool already started or is default'",
+          "description": "Starting storage pool",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh pool-list --all",
+          "description": "Listing all storage pools",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Base Image Setup",
+      "description": "Copying base VM image to storage pool",
+      "commands": [
+        {
+          "cmd": "test -f {{baseImagePath}} && echo 'Base image found' || (echo 'ERROR: Base image not found at {{baseImagePath}}' && exit 1)",
+          "description": "Verifying base image exists",
+          "safe": true
+        },
+        {
+          "cmd": "test -f {{storagePoolPath}}/oracle-desktop-9.qcow2 && echo 'Base image already in storage pool' || sudo cp {{baseImagePath}} {{storagePoolPath}}/oracle-desktop-9.qcow2",
+          "description": "Copying base image to storage pool (skip if exists)",
+          "safe": true,
+          "timeout": 120000
+        },
+        {
+          "cmd": "ls -lh {{storagePoolPath}}/oracle-desktop-9.qcow2",
+          "description": "Verifying base image in storage pool",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Splunk Network Configuration",
+      "description": "Setting up NAT network for Splunk VM (192.168.110.0/24)",
+      "commands": [
+        {
+          "cmd": "echo '<network><name>{{splunkNetworkName}}</name><forward mode=\"nat\"/><bridge name=\"{{splunkNetworkName}}\" stp=\"on\" delay=\"0\"/><ip address=\"192.168.110.1\" netmask=\"255.255.255.0\"><dhcp><range start=\"192.168.110.100\" end=\"192.168.110.254\"/></dhcp></ip></network>' | sudo tee /tmp/wizard-net-splunk.xml > /dev/null",
+          "description": "Creating Splunk network definition",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh net-define /tmp/wizard-net-splunk.xml 2>/dev/null || echo 'Network may already exist'",
+          "description": "Defining Splunk bridge network {{splunkNetworkName}}",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh net-autostart {{splunkNetworkName}} 2>/dev/null || true",
+          "description": "Setting Splunk network to autostart",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh net-start {{splunkNetworkName}} 2>/dev/null || echo 'Network already active'",
+          "description": "Starting Splunk network",
+          "safe": true
+        },
+        {
+          "cmd": "sudo rm -f /tmp/wizard-net-splunk.xml",
+          "description": "Cleaning up temp files",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "FreeIPA Network Configuration",
+      "description": "Setting up NAT network for FreeIPA VM (192.168.120.0/24)",
+      "commands": [
+        {
+          "cmd": "echo '<network><name>{{ipaNetworkName}}</name><forward mode=\"nat\"/><bridge name=\"{{ipaNetworkName}}\" stp=\"on\" delay=\"0\"/><ip address=\"192.168.120.1\" netmask=\"255.255.255.0\"><dhcp><range start=\"192.168.120.100\" end=\"192.168.120.254\"/></dhcp></ip></network>' | sudo tee /tmp/wizard-net-ipa.xml > /dev/null",
+          "description": "Creating FreeIPA network definition",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh net-define /tmp/wizard-net-ipa.xml 2>/dev/null || echo 'Network may already exist'",
+          "description": "Defining FreeIPA bridge network {{ipaNetworkName}}",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh net-autostart {{ipaNetworkName}} 2>/dev/null || true",
+          "description": "Setting FreeIPA network to autostart",
+          "safe": true
+        },
+        {
+          "cmd": "sudo virsh net-start {{ipaNetworkName}} 2>/dev/null || echo 'Network already active'",
+          "description": "Starting FreeIPA network",
+          "safe": true
+        },
+        {
+          "cmd": "sudo rm -f /tmp/wizard-net-ipa.xml",
+          "description": "Cleaning up temp files",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Install Cockpit",
+      "description": "Installing web management console",
+      "condition": "enableCockpit",
+      "commands": [
+        {
+          "cmd": "sudo dnf install -y cockpit cockpit-machines 2>&1",
+          "description": "Installing Cockpit and VM management plugin",
+          "safe": true,
+          "timeout": 120000
+        },
+        {
+          "cmd": "sudo systemctl enable --now cockpit.socket",
+          "description": "Enabling Cockpit web console",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Cockpit available at https://localhost:9090'",
+          "description": "Cockpit installation complete",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Security Hardening",
+      "description": "Applying security configuration",
+      "commands": [
+        {
+          "cmd": "sudo sysctl -w net.ipv4.ip_forward=1 && echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.d/99-kvm.conf > /dev/null",
+          "description": "Enabling IP forwarding for VM networking",
+          "safe": true
+        },
+        {
+          "cmd": "sudo sysctl -w net.bridge.bridge-nf-call-iptables=0 2>/dev/null && echo 'net.bridge.bridge-nf-call-iptables=0' | sudo tee -a /etc/sysctl.d/99-kvm.conf > /dev/null || echo 'bridge-nf module not loaded (OK)'",
+          "description": "Configuring bridge networking sysctls",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Enable Auto-Updates",
+      "description": "Configuring automatic security updates",
+      "condition": "enableAutoUpdates",
+      "commands": [
+        {
+          "cmd": "sudo dnf install -y dnf-automatic 2>&1",
+          "description": "Installing dnf-automatic",
+          "safe": true,
+          "timeout": 60000
+        },
+        {
+          "cmd": "sudo systemctl enable --now dnf-automatic-install.timer",
+          "description": "Enabling automatic security updates timer",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Final Verification",
+      "description": "Verifying installation",
+      "commands": [
+        {
+          "cmd": "echo '=== KVM Host Summary ===' && echo 'Hostname: '$(hostname) && echo 'Timezone: '$(timedatectl show -p Timezone --value) && echo '' && echo '=== Virtualisation ===' && sudo virsh version 2>&1 && echo '' && echo '=== Networks ===' && sudo virsh net-list --all 2>&1 && echo '' && echo '=== Storage Pools ===' && sudo virsh pool-list --all 2>&1 && echo '' && echo '=== Base Image ===' && ls -lh {{storagePoolPath}}/oracle-desktop-9.qcow2 2>/dev/null || echo 'No base image found'",
+          "description": "Generating environment summary",
+          "safe": true
+        }
+      ]
+    }
+  ],
+  "postInstall": [
+    {
+      "name": "Verify KVM",
+      "command": "sudo virsh list --all",
+      "safe": true
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "version": "1.0",
+  "variables": {
+    "storagePool": "/var/lib/libvirt/images",
+    "baseImage": "/var/lib/libvirt/images/oracle-desktop-9.qcow2",
+    "splunkNetwork": "virbr-splunk",
+    "ipaNetwork": "virbr-ipa",
+    "defaultPassword": "packer",
+    "ipaDomain": "lab.local",
+    "ipaRealm": "LAB.LOCAL",
+    "ipaAdminPassword": "ChangeMe123!",
+    "ipaDmPassword": "ChangeMe123!",
+    "splunkPassword": "ChangeMe123!"
+  },
+  "vms": [
+    {
+      "name": "splunk",
+      "description": "Splunk Enterprise SIEM on Oracle Linux 9",
+      "priority": 1,
+      "domainXmlPath": "splunk.xml",
+      "autoStart": true,
+      "tags": ["security", "siem"],
+      "ssh": {
+        "username": "root",
+        "password": "{{defaultPassword}}",
+        "port": 22
+      },
+      "preCreateCommands": [
+        "sudo qemu-img create -f qcow2 -b {{baseImage}} -F qcow2 {{storagePool}}/splunk.qcow2 40G"
+      ],
+      "postBoot": {
+        "waitFor": [
+          { "type": "agent", "timeout": 180 }
+        ],
+        "commands": [
+          {
+            "cmd": "hostnamectl set-hostname splunk.{{ipaDomain}}",
+            "description": "Set hostname"
+          },
+          {
+            "cmd": "IP=$(hostname -I | awk '{print $1}') && echo \"$IP splunk.{{ipaDomain}} splunk\" >> /etc/hosts",
+            "description": "Add FQDN to /etc/hosts"
+          },
+          {
+            "cmd": "dnf install -y wget perl",
+            "description": "Install Splunk prerequisites",
+            "timeout": 300
+          },
+          {
+            "cmd": "cd /opt && wget -O splunk-9.4.1-e3bdab203ac8-Linux-x86_64.tgz 'https://download.splunk.com/products/splunk/releases/9.4.1/linux/splunk-9.4.1-e3bdab203ac8-Linux-x86_64.tgz'",
+            "description": "Download Splunk Enterprise 9.4.1",
+            "timeout": 600
+          },
+          {
+            "cmd": "tar xzf /opt/splunk-9.4.1-e3bdab203ac8-Linux-x86_64.tgz -C /opt && rm -f /opt/splunk-9.4.1-e3bdab203ac8-Linux-x86_64.tgz",
+            "description": "Extract Splunk and clean up tarball",
+            "timeout": 120
+          },
+          {
+            "cmd": "/opt/splunk/bin/splunk start --accept-license --answer-yes --seed-passwd '{{splunkPassword}}' --no-prompt",
+            "description": "Start Splunk and accept license",
+            "timeout": 120,
+            "sensitive": true
+          },
+          {
+            "cmd": "/opt/splunk/bin/splunk enable boot-start -systemd-managed 1 --accept-license --answer-yes --no-prompt",
+            "description": "Enable Splunk at boot via systemd",
+            "timeout": 60
+          },
+          {
+            "cmd": "/opt/splunk/bin/splunk add monitor /var/log/messages -index main -sourcetype syslog -auth admin:'{{splunkPassword}}'",
+            "description": "Add syslog monitoring input",
+            "sensitive": true,
+            "ignoreError": true
+          },
+          {
+            "cmd": "/opt/splunk/bin/splunk add monitor /var/log/secure -index main -sourcetype linux_secure -auth admin:'{{splunkPassword}}'",
+            "description": "Add secure log monitoring input",
+            "sensitive": true,
+            "ignoreError": true
+          },
+          {
+            "cmd": "/opt/splunk/bin/splunk enable listen 9997 -auth admin:'{{splunkPassword}}'",
+            "description": "Enable Splunk forwarder receiver on port 9997",
+            "sensitive": true,
+            "ignoreError": true
+          },
+          {
+            "cmd": "firewall-cmd --permanent --add-port=8000/tcp --add-port=8089/tcp --add-port=9997/tcp --add-port=514/tcp --add-port=514/udp && firewall-cmd --reload",
+            "description": "Open firewall ports (web 8000, mgmt 8089, forwarder 9997, syslog 514)",
+            "ignoreError": true
+          },
+          {
+            "cmd": "/opt/splunk/bin/splunk status && echo '--- Splunk Web: https://'$(hostname -I | awk '{print $1}')':8000 ---'",
+            "description": "Verify Splunk is running"
+          }
+        ]
+      }
+    },
+    {
+      "name": "freeipa",
+      "description": "FreeIPA Identity Management on Oracle Linux 9",
+      "priority": 2,
+      "domainXmlPath": "freeipa.xml",
+      "autoStart": true,
+      "tags": ["identity", "dns", "ldap", "kerberos"],
+      "ssh": {
+        "username": "root",
+        "password": "{{defaultPassword}}",
+        "port": 22
+      },
+      "preCreateCommands": [
+        "sudo qemu-img create -f qcow2 -b {{baseImage}} -F qcow2 {{storagePool}}/freeipa.qcow2 40G"
+      ],
+      "postBoot": {
+        "waitFor": [
+          { "type": "agent", "timeout": 180 }
+        ],
+        "commands": [
+          {
+            "cmd": "hostnamectl set-hostname ipa.{{ipaDomain}}",
+            "description": "Set hostname"
+          },
+          {
+            "cmd": "IP=$(hostname -I | awk '{print $1}') && echo \"$IP ipa.{{ipaDomain}} ipa\" >> /etc/hosts",
+            "description": "Add FQDN to /etc/hosts with current IP"
+          },
+          {
+            "cmd": "dnf module enable idm:DL1 -y",
+            "description": "Enable FreeIPA module stream",
+            "timeout": 120,
+            "ignoreError": true
+          },
+          {
+            "cmd": "dnf install -y ipa-server ipa-server-dns",
+            "description": "Install FreeIPA server and DNS packages",
+            "timeout": 600
+          },
+          {
+            "cmd": "ipa-server-install --unattended --realm={{ipaRealm}} --domain={{ipaDomain}} --ds-password='{{ipaDmPassword}}' --admin-password='{{ipaAdminPassword}}' --hostname=ipa.{{ipaDomain}} --setup-dns --no-forwarders --no-ntp",
+            "description": "Run FreeIPA server installation (this takes a while)",
+            "timeout": 900,
+            "sensitive": true
+          },
+          {
+            "cmd": "firewall-cmd --permanent --add-service={freeipa-ldap,freeipa-ldaps,freeipa-replication,dns,ntp,http,https,kerberos,kpasswd} && firewall-cmd --reload",
+            "description": "Open FreeIPA firewall ports",
+            "ignoreError": true
+          },
+          {
+            "cmd": "echo '{{ipaAdminPassword}}' | kinit admin && klist",
+            "description": "Verify Kerberos authentication",
+            "sensitive": true
+          },
+          {
+            "cmd": "ipactl status && echo '--- FreeIPA Web UI: https://'$(hostname -I | awk '{print $1}')' ---'",
+            "description": "Verify FreeIPA services are running"
+          }
+        ]
+      }
+    }
+  ],
+  "profiles": {
+    "all": {
+      "description": "Full lab with Splunk SIEM and FreeIPA identity management",
+      "vms": ["splunk", "freeipa"]
+    },
+    "splunk-only": {
+      "description": "Splunk SIEM only",
+      "vms": ["splunk"]
+    },
+    "ipa-only": {
+      "description": "FreeIPA identity management only",
+      "vms": ["freeipa"]
+    }
+  }
+}

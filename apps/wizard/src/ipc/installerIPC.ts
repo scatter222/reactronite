@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { InstallerConfig, PreCheck, InstallCommand, UserConfig } from '../app/types/installer-config';
+import { getConfigDir } from '../main';
 
 const execAsync = promisify(exec);
 
@@ -15,13 +16,14 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle('installer:getConfig', async () => {
     try {
       // Try advanced config first, fall back to basic
-      let configPath = path.join(process.cwd(), 'installer-config-advanced.json');
-      
+      const baseDir = getConfigDir();
+      let configPath = path.join(baseDir, 'installer-config-advanced.json');
+
       try {
         await fs.access(configPath);
       } catch {
         // Fall back to basic config
-        configPath = path.join(process.cwd(), 'installer-config.json');
+        configPath = path.join(baseDir, 'installer-config.json');
       }
       
       const configData = await fs.readFile(configPath, 'utf-8');
@@ -36,7 +38,7 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   // Load advanced installer configuration
   ipcMain.handle('installer:getAdvancedConfig', async () => {
     try {
-      const configPath = path.join(process.cwd(), 'installer-config-advanced.json');
+      const configPath = path.join(getConfigDir(), 'installer-config-advanced.json');
       const configData = await fs.readFile(configPath, 'utf-8');
       return JSON.parse(configData);
     } catch (error) {
@@ -54,23 +56,8 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   // Run pre-installation check
   ipcMain.handle('installer:runPreCheck', async (_, check: PreCheck) => {
     try {
-      // Allow certain safe commands to run for real
-      const safeCommands = [
-        'uname', 'hostname', 'whoami', 'pwd', 'date', 'df', 'free',
-        'ip route', 'ip addr', 'ls', 'cat /etc/os-release', 'echo'
-      ];
-      
-      // Check if command starts with a safe command
-      const isActuallySafe = safeCommands.some(safe => 
-        check.command.startsWith(safe + ' ') || 
-        check.command === safe ||
-        check.command.startsWith('echo ')
-      );
-      
-      // Run the actual command if it's safe, otherwise echo it
-      const command = isActuallySafe ? check.command : `echo "Would run: ${check.command}"`;
-      
-      const { stdout, stderr } = await execAsync(command, {
+      // Pre-checks are read-only diagnostic commands — always run them
+      const { stdout, stderr } = await execAsync(check.command, {
         timeout: 10000, // 10 second timeout
       });
 
@@ -250,10 +237,30 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
     });
   });
 
+  // Mark setup as complete — remove autostart entry so the wizard
+  // doesn't launch again on next login.
+  ipcMain.handle('installer:completeSetup', async () => {
+    try {
+      const homeDir = process.env.HOME || `/home/${process.env.USER}`;
+      const autostartFile = path.join(homeDir, '.config', 'autostart', 'kvm-wizard.desktop');
+      await fs.unlink(autostartFile);
+      return { success: true };
+    } catch (error: any) {
+      // If the file doesn't exist, that's fine — already removed
+      if (error.code === 'ENOENT') return { success: true };
+      console.error('Failed to remove autostart entry:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   // Get installation steps
   ipcMain.handle('installer:getInstallSteps', async () => {
     if (!installerConfig) {
-      throw new Error('Installer configuration not loaded');
+      // Auto-load config if not already loaded
+      const baseDir = getConfigDir();
+      let configPath = path.join(baseDir, 'installer-config-advanced.json');
+      try { await fs.access(configPath); } catch { configPath = path.join(baseDir, 'installer-config.json'); }
+      installerConfig = JSON.parse(await fs.readFile(configPath, 'utf-8'));
     }
     
     // Filter steps based on conditions
@@ -269,9 +276,12 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   });
 
   // Helper function to get install steps with conditions applied
-  const getFilteredInstallSteps = () => {
+  const getFilteredInstallSteps = async () => {
     if (!installerConfig) {
-      throw new Error('Installer configuration not loaded');
+      const baseDir = getConfigDir();
+      let configPath = path.join(baseDir, 'installer-config-advanced.json');
+      try { await fs.access(configPath); } catch { configPath = path.join(baseDir, 'installer-config.json'); }
+      installerConfig = JSON.parse(await fs.readFile(configPath, 'utf-8'));
     }
     
     // Filter steps based on conditions
@@ -293,7 +303,7 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
     }
 
     const results = [];
-    const steps = getFilteredInstallSteps();
+    const steps = await getFilteredInstallSteps();
 
     for (const step of steps) {
       mainWindow.webContents.send('installer:stepStart', {

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=KVM Environment Setup
+Comment=Configure KVM virtualisation environment
+Exec="/opt/wizard/out/Installation Wizard-linux-x64/Installation Wizard" --no-sandbox
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;
+StartupNotify=true
+X-GNOME-Autostart-enabled=true

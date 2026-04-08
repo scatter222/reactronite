@@ -1,165 +1,41 @@
-# ⚛ Reactronite ⚛
+# Reactronite
 
-<div align="center">
+Environment provisioning and configuration platform.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)](https://reactjs.org/)
-[![Electron](https://img.shields.io/badge/Electron-191970?style=flat&logo=Electron&logoColor=white)](https://electronjs.org/)
-[![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white)](https://vitejs.dev/)
+## Structure
 
-**A modern, feature-rich Electron kit for building cross-platform desktop applications with React and Vite**
-
-[Features](#-features) • [Quick Start](#-quick-start) • [Configuration](#-configuration) • [Contributing](#-contributing)
-
-</div>
-
-![Windows Screenshot](./screenshots/window-win.png)
-![macOS Screenshot](./screenshots/window-mac.png)
-
----
-
-## 🎯 Overview
-
-The **Reactronite** is your ultimate starting point for creating modern, performant desktop applications. This carefully crafted template combines the power of Electron with the speed of Vite, the flexibility of React, and the safety of TypeScript to deliver an exceptional development experience.
-
-### Why This Kit?
-
-- 🏗️ **Production-Ready Architecture** - Clean, scalable project structure with separation of concerns
-- ⚡ **Lightning Fast Development** - Hot Module Replacement (HMR) with Vite for instant feedback
-- 🎨 **Native Desktop Experience** - Custom titlebar and native-feeling UI components
-- 🛡️ **Type Safety First** - Full TypeScript support with strict type checking
-- 🔧 **Developer Experience** - Pre-configured linting, formatting, and git hooks
-- 📦 **Zero Configuration** - Ready to code out of the box with sensible defaults
-
-## ✨ Features
-
-### 🎨 **User Interface & Experience**
-
-- **Custom Titlebar** - Native-looking titlebar with integrated window controls
-- **Responsive Design** - Adaptive layouts that work across different screen sizes
-- **Modern Styling** - TailwindCSS v4 styling system with theme support
-- **Cross-Platform Consistency** - Unified experience across Windows, macOS, and Linux
-
-### 🔧 **Development Tools**
-
-- **Hot Module Replacement** - Instant updates during development
-- **TypeScript Integration** - Full type safety with excellent IntelliSense support
-- **Code Quality Tools** - Integrated ESLint and [neostandard](https://github.com/neostandard/neostandard) for linting
-- **Git Hooks** - Automated code quality checks with Husky
-- **Path Mapping** - Clean imports with TypeScript path resolution
-
-### 🏗️ **Architecture & Security**
-
-- **Secure IPC Communication** - Safe main-renderer process communication
-- **Context Isolation** - Properly isolated preload scripts
-- **Window State Management** - Remembers window size, position, and state
-- **Auto-updater Ready** - Built with Electron Forge for easy distribution
-
-### 📦 **Build & Distribution**
-
-- **Multi-Platform Building** - Build for Windows, macOS, and Linux from any platform
-- **Optimized Bundles** - Tree-shaking and code splitting for smaller app sizes
-- **Auto-Packaging** - One-command building and packaging
-- **Distribution Ready** - Pre-configured makers for various package formats
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-Make sure you have the following installed:
-
-- **Node.js** (LTS or higher)
-- **pnpm** (v10 or higher) - This project uses pnpm as the package manager
-
-### Installation
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/flaviodelgrosso/reactronite.git
-   cd reactronite
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   pnpm install
-   ```
-
-3. **Start development**
-
-   ```bash
-   pnpm dev
-   ```
-
-That's it! Your application will launch in development mode with hot reloading enabled.
-
-### Available Scripts
-
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Start the app in development mode with hot reloading |
-| `pnpm package` | Package the app for the current platform |
-| `pnpm make` | Create distributable packages for the current platform |
-| `pnpm publish` | Publish the app (configure publishers in forge.config.ts) |
-
-## 📁 Project Structure
-
-```txt
-├── src/
-│   ├── main.ts              # Main Electron process
-│   ├── preload.ts           # Preload script for secure IPC
-│   ├── app/                  # React application
-│   │   ├── App.tsx          # Main app component
-│   │   ├── components/      # Reusable UI components
-│   │   ├── screens/         # Application screens/pages
-│   ├── menu/                # Application menu configuration
-│   ├── ipc/                 # IPC handlers and channels
-│   └── @types/              # TypeScript declarations
-├── config/                  # Vite configuration files
-├── assets/                  # Static assets (icons, fonts, images)
+```
+apps/wizard/        # Electron + React desktop app — installation wizard & VM manager
+infra/test-env/     # Terraform — Azure VM with nested KVM for dev/testing
 ```
 
-## 🔧 Configuration
+## Apps
 
-### Customizing the Build
+### Installation Wizard (`apps/wizard/`)
 
-The project uses Electron Forge for building and packaging. You can customize the build process by modifying:
+Electron desktop app for standing up, configuring, and managing KVM virtual machines via libvirt. Includes a guided installer wizard and a VM management dashboard.
 
-- **`forge.config.ts`** - Main Forge configuration
-- **`config/vite.*.config.ts`** - Vite configurations for different processes
-- **`package.json`** - Scripts and metadata
+```bash
+cd apps/wizard
+pnpm install
+pnpm dev
+```
 
-### Adding New Features
+See [apps/wizard/docs/](apps/wizard/docs/) for detailed documentation.
 
-The boilerplate is designed to be easily extensible:
+## Infrastructure
 
-1. **New UI Components** - Add to `src/app/components/`
-2. **New Screens** - Add to `src/app/screens/`
-3. **IPC Channels** - Define in `src/channels/` and handle in `src/ipc/`
-4. **Styling** - Use TailwindCSS classes in your components or create custom styles in `src/app/styles/`
+### Test Environment (`infra/test-env/`)
 
-## 🤝 Contributing
+Terraform config that deploys an Azure VM (D4s_v5) with nested virtualisation enabled, running Ubuntu 24.04 with KVM/libvirt pre-installed via cloud-init. Use this as a dev/test target for the wizard app.
 
-We love contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details on:
+```bash
+cd infra/test-env
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your Azure subscription ID and SSH key
+terraform init
+terraform plan
+terraform apply
+```
 
-- 📋 Code of Conduct
-- 🐛 Bug Reports
-- 💡 Feature Requests
-- 🔧 Development Setup
-- 📝 Pull Request Process
-
-## 📄 License
-
-This project is licensed under the [MIT License](./LICENSE) - feel free to use it for your own projects!
-
----
-
-<div align="center">
-
-**[⭐ Star this repo](https://github.com/flaviodelgrosso/reactronite)** if you found it helpful!
-
-Made with ❤️ by [Flavio Del Grosso](https://github.com/flaviodelgrosso)
-
-</div>
+Once deployed, SSH in and use the wizard app to manage VMs on the host.

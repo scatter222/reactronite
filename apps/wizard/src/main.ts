@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { BrowserWindow, app } from 'electron';
 import installExtension, { REACT_DEVELOPER_TOOLS } from 'electron-devtools-installer';
 import squirrelStartup from 'electron-squirrel-startup';
@@ -8,6 +10,19 @@ import { registerInstallerHandlers } from './ipc/installerIPC';
 import { registerVMHandlers } from './ipc/vmIPC';
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+
+/**
+ * Resolve the base directory for config files.
+ * In dev mode this is the project root (cwd).
+ * In production (packaged) it's the directory containing the executable,
+ * NOT process.cwd() which may be $HOME when launched from a .desktop file.
+ */
+export function getConfigDir (): string {
+  if (app.isPackaged) {
+    return path.dirname(app.getPath('exe'));
+  }
+  return process.cwd();
+}
 
 /** Handle creating/removing shortcuts on Windows when installing/uninstalling. */
 if (squirrelStartup) {

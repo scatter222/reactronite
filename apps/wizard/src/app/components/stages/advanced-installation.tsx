@@ -52,16 +52,15 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
     try {
       const installerConfig = await electron.ipcRenderer.invoke('installer:getConfig');
       // Use advanced config if available
-      const configPath = installerConfig.installer.version === '2.0.0' 
-        ? installerConfig 
-        : await electron.ipcRenderer.invoke('installer:getAdvancedConfig');
-      
-      setSteps(configPath.installSteps || installerConfig.installSteps);
+      const advancedConfig = await electron.ipcRenderer.invoke('installer:getAdvancedConfig');
+      const activeConfig = advancedConfig || installerConfig;
+
+      setSteps(activeConfig.installSteps || []);
       
       // Initialize runtime variables from pre-checks if they captured anything
-      if (configPath.preChecks) {
+      if (activeConfig.preChecks) {
         const capturedVars: Record<string, any> = {};
-        for (const check of configPath.preChecks) {
+        for (const check of activeConfig.preChecks) {
           if (check.captureAs) {
             // These would have been captured during pre-checks
             capturedVars[check.captureAs] = `<${check.captureAs} from pre-check>`;

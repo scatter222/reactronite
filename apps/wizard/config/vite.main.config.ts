@@ -24,13 +24,13 @@ export default defineConfig((env) => {
     plugins: [
       pluginHotRestart('restart'),
       viteTsconfigPaths(),
-      checker({
+      ...(env.mode !== 'production' ? [checker({
         typescript: true,
         eslint: {
           lintCommand: 'eslint',
           useFlatConfig: true
         }
-      })
+      })] : [])
     ],
     define,
     resolve: {

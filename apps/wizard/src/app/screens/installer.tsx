@@ -58,7 +58,7 @@ export function InstallerScreen() {
   };
 
   const handleComplete = () => {
-    navigate('/');
+    navigate('/vms');
   };
 
   const renderStageContent = () => {

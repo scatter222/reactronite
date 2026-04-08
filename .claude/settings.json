@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -o StrictHostKeyChecking=no azureuser@20.5.123.127 'echo connected && node --version')",
+      "Bash(ssh azureuser@20.5.123.127 'cd /opt/wizard && cat .npmrc && sudo rm -rf node_modules && pnpm install 2>&1')",
+      "Bash(ssh azureuser@20.5.123.127 'cd /opt/wizard && pnpm approve-builds @tailwindcss/oxide esbuild unrs-resolver 2>&1 && pnpm install 2>&1')",
+      "Bash(ssh azureuser@20.5.123.127 'cd /opt/wizard && pnpm run package 2>&1')",
+      "Bash(ssh azureuser@20.5.123.127 'APP_DIR=\"\"/opt/wizard/out/Installation Wizard-linux-x64\"\" && chmod +x \"\"$APP_DIR/Installation Wizard\"\" && ln -sf /opt/wizard/installer-config.json \"\"$APP_DIR/installer-config.json\"\" && ln -sf /opt/wizard/vm-config.json \"\"$APP_DIR/vm-config.json\"\" && ln -sf /opt/wizard/splunk.xml \"\"$APP_DIR/splunk.xml\"\" && ln -sf /opt/wizard/freeipa.xml \"\"$APP_DIR/freeipa.xml\"\" && ls -la \"\"$APP_DIR/\"\"*.json \"\"$APP_DIR/\"\"*.xml')",
+      "Bash(ssh azureuser@20.5.123.127 'sudo dnf grouplist 2>&1 | grep -i -E \"\"xfce|desktop|workstation\"\"')",
+      "Bash(ssh azureuser@20.5.123.127 'sudo dnf groupinstall -y \"\"Xfce\"\" 2>&1')",
+      "Bash(ssh azureuser@20.5.123.127 'gio set ~/Desktop/kvm-wizard.desktop metadata::trusted true && chmod +x ~/Desktop/kvm-wizard.desktop && echo \"\"done\"\"')",
+      "Bash(ssh azureuser@20.5.123.127 'sudo cp ~/Desktop/kvm-wizard.desktop /usr/share/applications/kvm-wizard.desktop && sudo dnf install -y xfdesktop 2>/dev/null; DISPLAY=:10.0 xfdesktop --reload 2>/dev/null; echo done')",
+      "Bash(ssh azureuser@20.5.123.127 'echo done')",
+      "Bash(az account get-access-token --query \"expiresOn\" -o tsv)"
+    ]
+  }
+}

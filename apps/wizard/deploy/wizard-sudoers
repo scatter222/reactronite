@@ -1,0 +1,2 @@
+# Passwordless sudo for KVM wizard installer commands
+azureuser ALL=(ALL) NOPASSWD: /usr/bin/hostnamectl, /usr/bin/timedatectl, /usr/bin/virsh, /usr/bin/mkdir, /usr/bin/wget, /usr/bin/dnf, /usr/bin/systemctl, /usr/sbin/sysctl, /usr/bin/tee, /usr/bin/rm, /usr/bin/qemu-img, /usr/bin/cp

@@ -1,5 +1,5 @@
 import { Button } from '@/app/components/ui/button';
-import { Package2, Server } from 'lucide-react';
+import { Server, Monitor, Network, HardDrive } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export function SplashScreen() {
@@ -11,18 +11,33 @@ export function SplashScreen() {
       <div className="text-center max-w-2xl mx-auto px-8 animate-in fade-in duration-500 relative z-10">
         <div className="mb-8 flex justify-center">
           <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/25">
-            <Package2 className="w-12 h-12 text-white" />
+            <Server className="w-12 h-12 text-white" />
           </div>
         </div>
 
         <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">
-          Installation Wizard
+          KVM Environment Setup
         </h1>
 
-        <p className="text-lg text-slate-400 mb-12 leading-relaxed">
-          Get your application up and running in just a few simple steps.
-          We'll guide you through the entire process.
+        <p className="text-lg text-slate-400 mb-8 leading-relaxed">
+          Configure this host as a KVM virtualisation environment.
+          We'll set up networking, storage, and base images so you can start deploying VMs.
         </p>
+
+        <div className="flex gap-6 justify-center mb-10 text-sm text-slate-500">
+          <div className="flex items-center gap-2">
+            <Network className="w-4 h-4 text-blue-400" />
+            Bridge Networks
+          </div>
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-blue-400" />
+            Storage Pools
+          </div>
+          <div className="flex items-center gap-2">
+            <Monitor className="w-4 h-4 text-blue-400" />
+            Base Images
+          </div>
+        </div>
 
         <div className="flex gap-4 justify-center">
           <Button

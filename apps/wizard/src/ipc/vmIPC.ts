@@ -13,6 +13,7 @@ import type {
   PostBootCommand,
   WaitCondition
 } from '../app/types/vm-config';
+import { getConfigDir } from '../main';
 
 const execAsync = promisify(exec);
 
@@ -383,14 +384,24 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
   // Helper: Transfer file via guest agent
   async function guestFileWrite(vmName: string, transfer: FileTransfer): Promise<VMOperationResult> {
     try {
-      // Read and process source file
-      let content = await fs.readFile(transfer.source, 'utf-8');
+      // Read source file - resolve relative paths against config dir
+      const resolvedSource = path.isAbsolute(transfer.source)
+        ? transfer.source
+        : path.resolve(getConfigDir(), transfer.source);
 
-      if (transfer.template && transfer.variables) {
-        content = applyVariables(content, transfer.variables);
+      let contentBase64: string;
+      if (transfer.template) {
+        // Template files are text - read as utf-8 and apply variable substitution
+        let content = await fs.readFile(resolvedSource, 'utf-8');
+        if (transfer.variables) {
+          content = applyVariables(content, transfer.variables);
+        }
+        contentBase64 = Buffer.from(content).toString('base64');
+      } else {
+        // Non-template files may be binary - read as raw buffer
+        const rawContent = await fs.readFile(resolvedSource);
+        contentBase64 = rawContent.toString('base64');
       }
-
-      const contentBase64 = Buffer.from(content).toString('base64');
 
       // Open file for writing
       const openPayload = {
@@ -608,21 +619,55 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
   // Helper: Create VM
   async function createVM(vm: VMConfig): Promise<VMOperationResult> {
     try {
-      let xmlContent = await fs.readFile(vm.domainXmlPath, 'utf-8');
-
-      if (vmConfig?.variables) {
-        xmlContent = applyVariables(xmlContent, vmConfig.variables);
-      }
-      if (vm.variables) {
-        xmlContent = applyVariables(xmlContent, vm.variables);
-      }
-
       await runHooks(vm.hooks?.beforeCreate);
 
-      const tmpXmlPath = path.join('/tmp', `${vm.name}-domain.xml`);
-      await fs.writeFile(tmpXmlPath, xmlContent);
-      const { stdout, stderr } = await execAsync(`virsh define ${tmpXmlPath}`);
-      await fs.unlink(tmpXmlPath).catch(() => {});
+      // Run pre-create commands (e.g. create disks, cloud-init ISOs)
+      if (vm.preCreateCommands) {
+        for (const cmd of vm.preCreateCommands) {
+          let processedCmd = cmd;
+          if (vmConfig?.variables) processedCmd = applyVariables(processedCmd, vmConfig.variables);
+          if (vm.variables) processedCmd = applyVariables(processedCmd, vm.variables);
+
+          mainWindow.webContents.send('vm:commandOutput', {
+            vmName: vm.name, type: 'stdout', data: `Running: ${processedCmd}\n`
+          });
+
+          const { stdout, stderr } = await execAsync(processedCmd, { timeout: 120000 });
+          if (stdout || stderr) {
+            mainWindow.webContents.send('vm:commandOutput', {
+              vmName: vm.name, type: 'stdout', data: (stdout || stderr).trim() + '\n'
+            });
+          }
+        }
+      }
+
+      let output = '';
+
+      // If a createCommand is provided (e.g. virt-install), use that instead of XML
+      if (vm.createCommand) {
+        let cmd = vm.createCommand;
+        if (vmConfig?.variables) cmd = applyVariables(cmd, vmConfig.variables);
+        if (vm.variables) cmd = applyVariables(cmd, vm.variables);
+
+        const result = await execAsync(cmd, { timeout: 120000 });
+        output = result.stdout || result.stderr;
+      } else if (vm.domainXmlPath) {
+        // Traditional XML-based creation
+        const resolvedXmlPath = path.isAbsolute(vm.domainXmlPath)
+          ? vm.domainXmlPath
+          : path.resolve(getConfigDir(), vm.domainXmlPath);
+        let xmlContent = await fs.readFile(resolvedXmlPath, 'utf-8');
+        if (vmConfig?.variables) xmlContent = applyVariables(xmlContent, vmConfig.variables);
+        if (vm.variables) xmlContent = applyVariables(xmlContent, vm.variables);
+
+        const tmpXmlPath = path.join('/tmp', `${vm.name}-domain.xml`);
+        await fs.writeFile(tmpXmlPath, xmlContent);
+        const result = await execAsync(`virsh define ${tmpXmlPath}`);
+        output = result.stdout || result.stderr;
+        await fs.unlink(tmpXmlPath).catch(() => {});
+      } else {
+        throw new Error(`VM ${vm.name}: no createCommand or domainXmlPath specified`);
+      }
 
       if (vm.autoStart) {
         await execAsync(`virsh autostart ${vm.name}`);
@@ -630,7 +675,7 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
 
       await runHooks(vm.hooks?.afterCreate);
 
-      return { success: true, vmName: vm.name, operation: 'create', output: stdout || stderr, timestamp: new Date() };
+      return { success: true, vmName: vm.name, operation: 'create', output, timestamp: new Date() };
     } catch (error: any) {
       return { success: false, vmName: vm.name, operation: 'create', error: error.message, timestamp: new Date() };
     }
@@ -649,7 +694,7 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
   // IPC Handlers
   ipcMain.handle('vm:getConfig', async () => {
     try {
-      const configPath = path.join(process.cwd(), 'vm-config.json');
+      const configPath = path.join(getConfigDir(), 'vm-config.json');
       vmConfig = JSON.parse(await fs.readFile(configPath, 'utf-8'));
       return vmConfig;
     } catch {
@@ -659,7 +704,7 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('vm:saveConfig', async (_, config: VMConfigFile) => {
     try {
-      await fs.writeFile(path.join(process.cwd(), 'vm-config.json'), JSON.stringify(config, null, 2));
+      await fs.writeFile(path.join(getConfigDir(), 'vm-config.json'), JSON.stringify(config, null, 2));
       vmConfig = config;
       return { success: true };
     } catch (error: any) {
