@@ -11,24 +11,27 @@ const execAsync = promisify(exec);
 export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   let installerConfig: InstallerConfig | null = null;
   let userConfig: UserConfig = {};
+  let currentConfigPrefix = 'installer';
+
+  const loadConfig = async (prefix?: string): Promise<InstallerConfig> => {
+    const p = prefix || currentConfigPrefix;
+    currentConfigPrefix = p;
+    const baseDir = getConfigDir();
+    let configPath = path.join(baseDir, `${p}-config-advanced.json`);
+    try {
+      await fs.access(configPath);
+    } catch {
+      configPath = path.join(baseDir, `${p}-config.json`);
+    }
+    const configData = await fs.readFile(configPath, 'utf-8');
+    installerConfig = JSON.parse(configData);
+    return installerConfig;
+  };
 
   // Load installer configuration
-  ipcMain.handle('installer:getConfig', async () => {
+  ipcMain.handle('installer:getConfig', async (_event, configPrefix?: string) => {
     try {
-      // Try advanced config first, fall back to basic
-      const baseDir = getConfigDir();
-      let configPath = path.join(baseDir, 'installer-config-advanced.json');
-
-      try {
-        await fs.access(configPath);
-      } catch {
-        // Fall back to basic config
-        configPath = path.join(baseDir, 'installer-config.json');
-      }
-      
-      const configData = await fs.readFile(configPath, 'utf-8');
-      installerConfig = JSON.parse(configData);
-      return installerConfig;
+      return await loadConfig(configPrefix);
     } catch (error) {
       console.error('Failed to load installer config:', error);
       throw error;
@@ -38,7 +41,7 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   // Load advanced installer configuration
   ipcMain.handle('installer:getAdvancedConfig', async () => {
     try {
-      const configPath = path.join(getConfigDir(), 'installer-config-advanced.json');
+      const configPath = path.join(getConfigDir(), `${currentConfigPrefix}-config-advanced.json`);
       const configData = await fs.readFile(configPath, 'utf-8');
       return JSON.parse(configData);
     } catch (error) {
@@ -256,11 +259,7 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   // Get installation steps
   ipcMain.handle('installer:getInstallSteps', async () => {
     if (!installerConfig) {
-      // Auto-load config if not already loaded
-      const baseDir = getConfigDir();
-      let configPath = path.join(baseDir, 'installer-config-advanced.json');
-      try { await fs.access(configPath); } catch { configPath = path.join(baseDir, 'installer-config.json'); }
-      installerConfig = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+      await loadConfig();
     }
     
     // Filter steps based on conditions
@@ -278,10 +277,7 @@ export function registerInstallerHandlers(mainWindow: BrowserWindow) {
   // Helper function to get install steps with conditions applied
   const getFilteredInstallSteps = async () => {
     if (!installerConfig) {
-      const baseDir = getConfigDir();
-      let configPath = path.join(baseDir, 'installer-config-advanced.json');
-      try { await fs.access(configPath); } catch { configPath = path.join(baseDir, 'installer-config.json'); }
-      installerConfig = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+      await loadConfig();
     }
     
     // Filter steps based on conditions

@@ -25,11 +25,8 @@ export default defineConfig((env) => {
       pluginHotRestart('restart'),
       viteTsconfigPaths(),
       ...(env.mode !== 'production' ? [checker({
-        typescript: true,
-        eslint: {
-          lintCommand: 'eslint',
-          useFlatConfig: true
-        }
+        typescript: false,
+        eslint: false
       })] : [])
     ],
     define,

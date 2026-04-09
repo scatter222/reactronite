@@ -43,7 +43,8 @@ export default defineConfig((env) => {
       __LINUX__: process.platform === 'linux',
       __APP_NAME__: JSON.stringify(productName),
       __APP_VERSION__: JSON.stringify(version),
-      __DEV__: process.env.NODE_ENV === 'development'
+      __DEV__: process.env.NODE_ENV === 'development',
+      __BUILD_MODE__: JSON.stringify(process.env.BUILD_MODE || 'workstation')
     }
   };
 });

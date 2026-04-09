@@ -1,0 +1,140 @@
+{
+  "installer": {
+    "name": "Workstation Setup",
+    "version": "1.0.0",
+    "description": "Configure this workstation with tools and settings for managing KVM environments"
+  },
+  "preChecks": [
+    {
+      "name": "Operating System",
+      "command": "cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'",
+      "expectedPattern": "Oracle|Rocky|RHEL|CentOS|Ubuntu|Debian|Fedora",
+      "errorMessage": "Unsupported operating system",
+      "safe": true
+    },
+    {
+      "name": "SSH Client Available",
+      "command": "which ssh",
+      "expectedPattern": "/ssh",
+      "errorMessage": "SSH client is not installed",
+      "safe": true
+    },
+    {
+      "name": "Virt-manager Available",
+      "command": "which virt-manager 2>/dev/null || echo 'not found'",
+      "expectedPattern": "virt-manager|not found",
+      "errorMessage": "virt-manager is not installed (will be installed)",
+      "safe": true
+    },
+    {
+      "name": "Available Disk Space",
+      "command": "df -BG / | awk 'NR==2{print $4}' | tr -d 'G'",
+      "expectedPattern": "^[5-9]|^[1-9][0-9]",
+      "errorMessage": "Less than 5GB free disk space",
+      "safe": true,
+      "type": "diskSpace"
+    }
+  ],
+  "configFields": [
+    {
+      "id": "kvmHost",
+      "label": "KVM Host Address",
+      "type": "text",
+      "required": true,
+      "placeholder": "192.168.1.100",
+      "description": "IP address or hostname of the KVM host to manage"
+    },
+    {
+      "id": "kvmUser",
+      "label": "KVM Host Username",
+      "type": "text",
+      "required": true,
+      "placeholder": "root",
+      "default": "root",
+      "description": "SSH user on the KVM host"
+    },
+    {
+      "id": "installVirtManager",
+      "label": "Install Virt-Manager",
+      "type": "boolean",
+      "default": true,
+      "description": "Install virt-manager GUI for managing virtual machines"
+    },
+    {
+      "id": "installCockpitClient",
+      "label": "Install Cockpit Client Tools",
+      "type": "boolean",
+      "default": false,
+      "description": "Install cockpit-client for browser-based VM management"
+    },
+    {
+      "id": "configureSSHKey",
+      "label": "Configure SSH Key Authentication",
+      "type": "boolean",
+      "default": true,
+      "description": "Generate and deploy an SSH key to the KVM host for passwordless access"
+    }
+  ],
+  "installSteps": [
+    {
+      "name": "Install Management Tools",
+      "description": "Installing VM management packages",
+      "commands": [
+        {
+          "cmd": "sudo dnf install -y virt-manager virt-viewer libvirt-client 2>&1",
+          "description": "Installing virt-manager and libvirt client tools",
+          "safe": true,
+          "timeout": 120000,
+          "condition": "installVirtManager"
+        },
+        {
+          "cmd": "sudo dnf install -y cockpit-client 2>&1",
+          "description": "Installing Cockpit client",
+          "safe": true,
+          "timeout": 60000,
+          "condition": "installCockpitClient"
+        }
+      ]
+    },
+    {
+      "name": "SSH Key Setup",
+      "description": "Configuring SSH key authentication to KVM host",
+      "condition": "configureSSHKey",
+      "commands": [
+        {
+          "cmd": "test -f ~/.ssh/id_ed25519 && echo 'SSH key already exists' || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -q",
+          "description": "Generating SSH key (ed25519)",
+          "safe": true
+        },
+        {
+          "cmd": "echo 'Run: ssh-copy-id {{kvmUser}}@{{kvmHost}} to deploy your key'",
+          "description": "SSH key deployment instructions",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Remote Connection Test",
+      "description": "Verifying connectivity to KVM host",
+      "commands": [
+        {
+          "cmd": "echo 'Testing connection to {{kvmHost}}...' && ping -c 1 -W 3 {{kvmHost}} 2>&1 && echo 'Host reachable' || echo 'WARNING: Host unreachable (may be offline)'",
+          "description": "Testing network connectivity to KVM host",
+          "safe": true
+        }
+      ]
+    },
+    {
+      "name": "Final Verification",
+      "description": "Verifying workstation setup",
+      "commands": [
+        {
+          "cmd": "echo '=== Workstation Summary ===' && echo 'KVM Host: {{kvmHost}}' && echo 'User: {{kvmUser}}' && echo '' && echo '=== Installed Tools ===' && (which virt-manager 2>/dev/null && echo 'virt-manager: installed' || echo 'virt-manager: not installed') && (which virsh 2>/dev/null && echo 'virsh: installed' || echo 'virsh: not installed')",
+          "description": "Generating workstation summary",
+          "safe": true
+        }
+      ]
+    }
+  ],
+  "postInstall": []
+}

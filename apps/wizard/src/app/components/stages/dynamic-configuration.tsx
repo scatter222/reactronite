@@ -8,11 +8,12 @@ import { AlertCircle, Eye, EyeOff, Shield, Key, Server, Clock } from 'lucide-rea
 import type { InstallerConfig, ConfigField, UserConfig } from '@/app/types/installer-config';
 
 interface DynamicConfigurationStageProps {
+  configPrefix?: string;
   onConfigChange: (config: UserConfig) => void;
   onNext: () => void;
 }
 
-export function DynamicConfigurationStage({ onConfigChange, onNext }: DynamicConfigurationStageProps) {
+export function DynamicConfigurationStage({ configPrefix, onConfigChange, onNext }: DynamicConfigurationStageProps) {
   const [config, setConfig] = useState<UserConfig>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
@@ -25,7 +26,7 @@ export function DynamicConfigurationStage({ onConfigChange, onNext }: DynamicCon
 
   const loadInstallerConfig = async () => {
     try {
-      const configData = await electron.ipcRenderer.invoke('installer:getConfig');
+      const configData = await electron.ipcRenderer.invoke('installer:getConfig', configPrefix);
       setInstallerConfig(configData);
       
       // Initialize default values

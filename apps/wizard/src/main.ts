@@ -7,6 +7,7 @@ import squirrelStartup from 'electron-squirrel-startup';
 import { createAppWindow } from './appWindow';
 import { registerDialogHandlers } from './ipc/dialogIPC';
 import { registerInstallerHandlers } from './ipc/installerIPC';
+import { registerHardwareHandlers } from './ipc/hardwareIPC';
 import { registerVMHandlers } from './ipc/vmIPC';
 
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
@@ -44,6 +45,7 @@ app.on('ready', () => {
   const mainWindow = createAppWindow();
   registerDialogHandlers();
   registerInstallerHandlers(mainWindow);
+  registerHardwareHandlers(mainWindow);
   registerVMHandlers(mainWindow);
 });
 

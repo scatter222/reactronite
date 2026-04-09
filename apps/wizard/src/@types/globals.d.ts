@@ -8,4 +8,5 @@ declare global {
   const __DEV__: boolean;
   const __APP_NAME__: string;
   const __APP_VERSION__: string;
+  const __BUILD_MODE__: 'workstation' | 'server';
 }

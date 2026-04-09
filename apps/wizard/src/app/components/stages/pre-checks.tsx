@@ -5,6 +5,7 @@ import { CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw } from 'lucide
 import type { PreCheck } from '@/app/types/installer-config';
 
 interface PreChecksStageProps {
+  configPrefix?: string;
   onNext: () => void;
   onBack: () => void;
 }
@@ -16,7 +17,7 @@ interface CheckResult {
   output?: string;
 }
 
-export function PreChecksStage({ onNext, onBack }: PreChecksStageProps) {
+export function PreChecksStage({ configPrefix, onNext, onBack }: PreChecksStageProps) {
   const [checks, setChecks] = useState<PreCheck[]>([]);
   const [checkResults, setCheckResults] = useState<CheckResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -28,7 +29,7 @@ export function PreChecksStage({ onNext, onBack }: PreChecksStageProps) {
 
   const loadPreChecks = async () => {
     try {
-      const config = await electron.ipcRenderer.invoke('installer:getConfig');
+      const config = await electron.ipcRenderer.invoke('installer:getConfig', configPrefix);
       setChecks(config.preChecks);
       setCheckResults(config.preChecks.map((check: PreCheck) => ({
         name: check.name,
