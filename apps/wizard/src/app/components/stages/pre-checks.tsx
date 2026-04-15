@@ -8,6 +8,7 @@ interface PreChecksStageProps {
   configPrefix?: string;
   onNext: () => void;
   onBack: () => void;
+  onCapturedVariables?: (vars: Record<string, any>) => void;
 }
 
 interface CheckResult {
@@ -15,9 +16,10 @@ interface CheckResult {
   status: 'pending' | 'running' | 'success' | 'warning' | 'error';
   message?: string;
   output?: string;
+  captureAs?: string;
 }
 
-export function PreChecksStage({ configPrefix, onNext, onBack }: PreChecksStageProps) {
+export function PreChecksStage({ configPrefix, onNext, onBack, onCapturedVariables }: PreChecksStageProps) {
   const [checks, setChecks] = useState<PreCheck[]>([]);
   const [checkResults, setCheckResults] = useState<CheckResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -43,27 +45,28 @@ export function PreChecksStage({ configPrefix, onNext, onBack }: PreChecksStageP
   const runPreChecks = async () => {
     setIsRunning(true);
     setAllChecksPassed(false);
-    
+
     const results: CheckResult[] = [];
-    
+    const captured: Record<string, any> = {};
+
     for (let i = 0; i < checks.length; i++) {
       const check = checks[i];
-      
+
       // Update status to running
       setCheckResults(prev => {
         const updated = [...prev];
         updated[i] = { ...updated[i], status: 'running' };
         return updated;
       });
-      
+
       try {
         // Execute the check
         const result = await electron.ipcRenderer.invoke('installer:runPreCheck', check);
-        
+
         // Determine status based on result
         let status: CheckResult['status'] = 'success';
         let message = 'Check passed';
-        
+
         if (!result.success) {
           status = 'error';
           message = check.errorMessage || 'Check failed';
@@ -71,35 +74,41 @@ export function PreChecksStage({ configPrefix, onNext, onBack }: PreChecksStageP
           status = 'warning';
           message = result.warning;
         }
-        
+
+        // Capture output as variable if specified
+        if (check.captureAs && result.success && result.output) {
+          captured[check.captureAs] = result.output.trim();
+        }
+
         const checkResult: CheckResult = {
           name: check.name,
           status,
           message,
-          output: result.output
+          output: result.output,
+          captureAs: check.captureAs
         };
-        
+
         results.push(checkResult);
-        
+
         // Update this specific check result
         setCheckResults(prev => {
           const updated = [...prev];
           updated[i] = checkResult;
           return updated;
         });
-        
+
         // Add small delay for visual effect
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
       } catch (error) {
         const checkResult: CheckResult = {
           name: check.name,
           status: 'error',
           message: `Failed to run check: ${error.message}`,
         };
-        
+
         results.push(checkResult);
-        
+
         setCheckResults(prev => {
           const updated = [...prev];
           updated[i] = checkResult;
@@ -107,7 +116,12 @@ export function PreChecksStage({ configPrefix, onNext, onBack }: PreChecksStageP
         });
       }
     }
-    
+
+    // Report captured variables up to the parent
+    if (Object.keys(captured).length > 0 && onCapturedVariables) {
+      onCapturedVariables(captured);
+    }
+
     // Check if all passed (warnings are OK)
     const passed = results.every(r => r.status === 'success' || r.status === 'warning');
     setAllChecksPassed(passed);

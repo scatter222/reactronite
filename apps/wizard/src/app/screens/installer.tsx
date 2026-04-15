@@ -31,6 +31,7 @@ export function InstallerScreen({ configPrefix = 'installer' }: InstallerScreenP
   const navigate = useNavigate();
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
   const [userConfig, setUserConfig] = useState<UserConfig>({});
+  const [capturedVariables, setCapturedVariables] = useState<Record<string, any>>({});
 
   const [stages, setStages] = useState<Stage[]>([
     { id: 'config', label: 'Configuration', icon: Settings, status: 'active' },
@@ -62,7 +63,11 @@ export function InstallerScreen({ configPrefix = 'installer' }: InstallerScreenP
   };
 
   const handleComplete = () => {
-    navigate('/vms');
+    navigate('/vms', { state: { capturedVariables: { ...userConfig, ...capturedVariables } } });
+  };
+
+  const handleCapturedVariables = (vars: Record<string, any>) => {
+    setCapturedVariables(prev => ({ ...prev, ...vars }));
   };
 
   const renderStageContent = () => {
@@ -81,14 +86,17 @@ export function InstallerScreen({ configPrefix = 'installer' }: InstallerScreenP
             configPrefix={configPrefix}
             onNext={handleNext}
             onBack={handleBack}
+            onCapturedVariables={handleCapturedVariables}
           />
         );
       case 'install':
         return (
           <AdvancedInstallationStage
             config={userConfig}
+            initialCapturedVariables={capturedVariables}
             onNext={handleNext}
             onBack={handleBack}
+            onCapturedVariables={handleCapturedVariables}
           />
         );
       case 'complete':

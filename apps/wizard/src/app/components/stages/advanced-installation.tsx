@@ -8,8 +8,10 @@ import type { InstallStep, InstallCommand, UserConfig } from '@/app/types/instal
 
 interface AdvancedInstallationStageProps {
   config: UserConfig;
+  initialCapturedVariables?: Record<string, any>;
   onNext: () => void;
   onBack: () => void;
+  onCapturedVariables?: (vars: Record<string, any>) => void;
 }
 
 interface TerminalLine {
@@ -19,19 +21,30 @@ interface TerminalLine {
   timestamp: Date;
 }
 
-export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedInstallationStageProps) {
+export function AdvancedInstallationStage({ config, initialCapturedVariables, onNext, onBack, onCapturedVariables }: AdvancedInstallationStageProps) {
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const [isInstalling, setIsInstalling] = useState(false);
   const [installComplete, setInstallComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [currentStep, setCurrentStep] = useState<string>('');
   const [steps, setSteps] = useState<InstallStep[]>([]);
-  const [runtimeVariables, setRuntimeVariables] = useState<Record<string, any>>({});
+  const [runtimeVariables, setRuntimeVariables] = useState<Record<string, any>>(initialCapturedVariables || {});
   const [currentPrompt, setCurrentPrompt] = useState<InstallCommand | null>(null);
   const [currentDisplay, setCurrentDisplay] = useState<InstallCommand | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(false); // Use ref to avoid closure issues
+  const runtimeVariablesRef = useRef<Record<string, any>>(initialCapturedVariables || {});
   const terminalRef = useRef<HTMLDivElement>(null);
+
+  // Helper to update runtime variables in both state and ref, and report to parent
+  const updateRuntimeVariables = (updater: (prev: Record<string, any>) => Record<string, any>) => {
+    setRuntimeVariables(prev => {
+      const next = updater(prev);
+      runtimeVariablesRef.current = next;
+      onCapturedVariables?.(next);
+      return next;
+    });
+  };
 
   // Combine user config with runtime variables
   const allVariables = { ...config, ...runtimeVariables };
@@ -56,18 +69,6 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       const activeConfig = advancedConfig || installerConfig;
 
       setSteps(activeConfig.installSteps || []);
-      
-      // Initialize runtime variables from pre-checks if they captured anything
-      if (activeConfig.preChecks) {
-        const capturedVars: Record<string, any> = {};
-        for (const check of activeConfig.preChecks) {
-          if (check.captureAs) {
-            // These would have been captured during pre-checks
-            capturedVars[check.captureAs] = `<${check.captureAs} from pre-check>`;
-          }
-        }
-        setRuntimeVariables(capturedVars);
-      }
     } catch (error) {
       console.error('Failed to load install steps:', error);
       addLine('error', `Failed to load installation steps: ${error.message}`);
@@ -117,9 +118,9 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
 
   const evaluateCondition = (condition: string): boolean => {
     try {
-      // Create a safe evaluation context with variables
-      const func = new Function(...Object.keys(allVariables), `return ${condition}`);
-      return func(...Object.values(allVariables));
+      const currentVars = { ...config, ...runtimeVariablesRef.current };
+      const func = new Function(...Object.keys(currentVars), `return ${condition}`);
+      return func(...Object.values(currentVars));
     } catch (error) {
       console.error('Error evaluating condition:', condition, error);
       return false;
@@ -180,8 +181,9 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       }
       
       addLine('command', `$ ${command.description}`);
-      
-      const result = await electron.ipcRenderer.invoke('installer:runCommand', command, allVariables);
+
+      const currentVars = { ...config, ...runtimeVariablesRef.current };
+      const result = await electron.ipcRenderer.invoke('installer:runCommand', command, currentVars);
       
       if (result.output) {
         const outputLines = result.output.trim().split('\n');
@@ -194,7 +196,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
         // Capture output as variable if specified
         if (command.captureAs && result.success) {
           const capturedValue = result.output.trim();
-          setRuntimeVariables(prev => ({
+          updateRuntimeVariables(prev => ({
             ...prev,
             [command.captureAs]: capturedValue || command.defaultValue || ''
           }));
@@ -205,7 +207,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       if (!result.success) {
         // Use default value if capture failed
         if (command.captureAs && command.defaultValue) {
-          setRuntimeVariables(prev => ({
+          updateRuntimeVariables(prev => ({
             ...prev,
             [command.captureAs]: command.defaultValue
           }));
@@ -225,7 +227,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
 
   const handlePromptSubmit = (value: any) => {
     if (currentPrompt?.captureAs) {
-      setRuntimeVariables(prev => ({
+      updateRuntimeVariables(prev => ({
         ...prev,
         [currentPrompt.captureAs!]: value
       }));
@@ -282,7 +284,7 @@ export function AdvancedInstallationStage({ config, onNext, onBack }: AdvancedIn
       
       // Display final variables
       addLine('info', '\n📊 Final Configuration:');
-      Object.entries(runtimeVariables).forEach(([key, value]) => {
+      Object.entries(runtimeVariablesRef.current).forEach(([key, value]) => {
         if (!key.includes('Password') && !key.includes('passphrase')) {
           addLine('variable', `  ${key}: ${value}`);
         }

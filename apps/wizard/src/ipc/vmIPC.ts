@@ -19,6 +19,7 @@ const execAsync = promisify(exec);
 
 export function registerVMHandlers(mainWindow: BrowserWindow) {
   let vmConfig: VMConfigFile | null = null;
+  let installerVariables: Record<string, any> = {};
   const vmStates: Map<string, VMState> = new Map();
   // Track VMs where we've already fixed the guest agent to avoid repeated attempts
   const agentFixedVMs: Set<string> = new Set();
@@ -191,7 +192,14 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
   // the renderer. This allows arbitrarily large command output (e.g. ansible runs).
   async function guestExec(vmName: string, command: PostBootCommand): Promise<VMOperationResult> {
     try {
-      const cmdB64 = Buffer.from(command.cmd).toString('base64');
+      // Apply installer variables to the command
+      let processedCmd = command.cmd;
+      if (Object.keys(installerVariables).length > 0) processedCmd = applyVariables(processedCmd, installerVariables);
+      if (vmConfig?.variables) processedCmd = applyVariables(processedCmd, vmConfig.variables);
+      const vm = vmConfig?.vms.find(v => v.name === vmName);
+      if (vm?.variables) processedCmd = applyVariables(processedCmd, vm.variables);
+
+      const cmdB64 = Buffer.from(processedCmd).toString('base64');
 
       let innerCmd: string;
       if (command.user) {
@@ -393,6 +401,9 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
       if (transfer.template) {
         // Template files are text - read as utf-8 and apply variable substitution
         let content = await fs.readFile(resolvedSource, 'utf-8');
+        if (Object.keys(installerVariables).length > 0) {
+          content = applyVariables(content, installerVariables);
+        }
         if (transfer.variables) {
           content = applyVariables(content, transfer.variables);
         }
@@ -611,7 +622,9 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
   // Helper: Run hooks
   async function runHooks(hooks: string[] | undefined): Promise<void> {
     if (!hooks) return;
-    for (const cmd of hooks) {
+    for (let cmd of hooks) {
+      if (Object.keys(installerVariables).length > 0) cmd = applyVariables(cmd, installerVariables);
+      if (vmConfig?.variables) cmd = applyVariables(cmd, vmConfig.variables);
       await execAsync(cmd);
     }
   }
@@ -625,6 +638,7 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
       if (vm.preCreateCommands) {
         for (const cmd of vm.preCreateCommands) {
           let processedCmd = cmd;
+          if (Object.keys(installerVariables).length > 0) processedCmd = applyVariables(processedCmd, installerVariables);
           if (vmConfig?.variables) processedCmd = applyVariables(processedCmd, vmConfig.variables);
           if (vm.variables) processedCmd = applyVariables(processedCmd, vm.variables);
 
@@ -646,6 +660,7 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
       // If a createCommand is provided (e.g. virt-install), use that instead of XML
       if (vm.createCommand) {
         let cmd = vm.createCommand;
+        if (Object.keys(installerVariables).length > 0) cmd = applyVariables(cmd, installerVariables);
         if (vmConfig?.variables) cmd = applyVariables(cmd, vmConfig.variables);
         if (vm.variables) cmd = applyVariables(cmd, vm.variables);
 
@@ -657,6 +672,7 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
           ? vm.domainXmlPath
           : path.resolve(getConfigDir(), vm.domainXmlPath);
         let xmlContent = await fs.readFile(resolvedXmlPath, 'utf-8');
+        if (Object.keys(installerVariables).length > 0) xmlContent = applyVariables(xmlContent, installerVariables);
         if (vmConfig?.variables) xmlContent = applyVariables(xmlContent, vmConfig.variables);
         if (vm.variables) xmlContent = applyVariables(xmlContent, vm.variables);
 
@@ -700,6 +716,11 @@ export function registerVMHandlers(mainWindow: BrowserWindow) {
     } catch {
       return { version: '1.0', vms: [], defaults: {}, variables: {} };
     }
+  });
+
+  ipcMain.handle('vm:setInstallerVariables', async (_, vars: Record<string, any>) => {
+    installerVariables = vars || {};
+    return { success: true };
   });
 
   ipcMain.handle('vm:saveConfig', async (_, config: VMConfigFile) => {

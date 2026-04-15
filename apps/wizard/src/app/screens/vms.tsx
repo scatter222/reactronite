@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Play, Square, Trash2, RefreshCw, Server, Terminal, Upload, Rocket } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
+import { useLocation } from 'react-router-dom';
 import type { VMState, VMOperationResult, VMConfigFile } from '@/app/types/vm-config';
 
 export function VMScreen() {
+  const location = useLocation();
+  const installerVariables: Record<string, any> = (location.state as any)?.capturedVariables || {};
   const [vms, setVMs] = useState<VMState[]>([]);
   const [loading, setLoading] = useState(true);
   const [output, setOutput] = useState<string[]>([]);
@@ -26,6 +29,13 @@ export function VMScreen() {
   const addOutput = (msg: string) => {
     setOutput(prev => [...prev.slice(-100), `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
+
+  // Send installer variables to main process on mount
+  useEffect(() => {
+    if (Object.keys(installerVariables).length > 0) {
+      electron.ipcRenderer.invoke('vm:setInstallerVariables', installerVariables);
+    }
+  }, []);
 
   const deployConfig = async () => {
     setDeploying(true);
