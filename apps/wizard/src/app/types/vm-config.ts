@@ -129,7 +129,7 @@ export interface WaitCondition {
 // Container for multiple VM configurations
 export interface VMConfigFile {
   version?: string; // Config file version for migrations
-  vms: VMConfig[];
+  vms: VMConfig[][];
 
   // Global defaults that can be overridden per VM
   defaults?: {

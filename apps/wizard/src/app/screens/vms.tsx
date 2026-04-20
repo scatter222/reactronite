@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, Server, Rocket, ChevronRight } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { useLocation } from 'react-router-dom';
-import type { VMState, VMOperationResult, VMConfigFile } from '@/app/types/vm-config';
+import type { VMState, VMConfig, VMOperationResult, VMConfigFile } from '@/app/types/vm-config';
 
 type InstallPhase = 'pending' | 'creating' | 'starting' | 'waiting' | 'transferring' | 'post-boot' | 'complete' | 'error';
 
@@ -83,6 +83,32 @@ export function VMScreen() {
     }
   }, []);
 
+  const deployVM = async (vm: VMConfig, existingNames: Set<string>) => {
+    if (existingNames.has(vm.name)) {
+      addLog(`Already defined, skipping create`, vm.name);
+    } else {
+      setPhase(vm.name, 'creating');
+      addLog(`Creating...`, vm.name);
+      const createResult: VMOperationResult = await electron.ipcRenderer.invoke('vm:create', vm);
+      if (!createResult.success) {
+        addLog(`Failed to create: ${createResult.error}`, vm.name);
+        setPhase(vm.name, 'error');
+        return;
+      }
+      addLog(`Created`, vm.name);
+    }
+
+    setPhase(vm.name, 'starting');
+    addLog(`Starting...`, vm.name);
+    const startResult: VMOperationResult = await electron.ipcRenderer.invoke('vm:start', vm.name);
+    if (startResult.success) {
+      addLog(`Started`, vm.name);
+    } else {
+      addLog(`Failed to start: ${startResult.error}`, vm.name);
+      setPhase(vm.name, 'error');
+    }
+  };
+
   const deployConfig = async () => {
     setDeploying(true);
     try {
@@ -95,39 +121,21 @@ export function VMScreen() {
 
       // Initialize all phases to pending
       const phases: Record<string, InstallPhase> = {};
-      for (const vm of config.vms) {
-        phases[vm.name] = 'pending';
+      for (const tier of config.vms) {
+        for (const vm of tier) {
+          phases[vm.name] = 'pending';
+        }
       }
       setVMPhases(phases);
 
       const existingStates = await electron.ipcRenderer.invoke('vm:getStates');
-      const existingNames = new Set((existingStates || []).map((s: VMState) => s.name));
+      const existingNames = new Set<string>((existingStates || []).map((s: VMState) => s.name));
 
-      for (const vm of config.vms) {
-        if (existingNames.has(vm.name)) {
-          addLog(`Already defined, skipping create`, vm.name);
-          setPhase(vm.name, 'starting');
-        } else {
-          setPhase(vm.name, 'creating');
-          addLog(`Creating...`, vm.name);
-          const createResult: VMOperationResult = await electron.ipcRenderer.invoke('vm:create', vm);
-          if (!createResult.success) {
-            addLog(`Failed to create: ${createResult.error}`, vm.name);
-            setPhase(vm.name, 'error');
-            continue;
-          }
-          addLog(`Created`, vm.name);
-        }
-
-        setPhase(vm.name, 'starting');
-        addLog(`Starting...`, vm.name);
-        const startResult: VMOperationResult = await electron.ipcRenderer.invoke('vm:start', vm.name);
-        if (startResult.success) {
-          addLog(`Started`, vm.name);
-        } else {
-          addLog(`Failed to start: ${startResult.error}`, vm.name);
-          setPhase(vm.name, 'error');
-        }
+      // Process tiers sequentially; VMs within a tier run in parallel
+      for (let i = 0; i < config.vms.length; i++) {
+        const tier = config.vms[i];
+        addLog(`Starting tier ${i + 1} (${tier.map(v => v.name).join(', ')})`);
+        await Promise.all(tier.map(vm => deployVM(vm, existingNames)));
       }
 
       await refreshVMs();
