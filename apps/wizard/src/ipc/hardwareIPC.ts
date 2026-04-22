@@ -26,9 +26,9 @@ export function registerHardwareHandlers(mainWindow: BrowserWindow) {
 
       // Build env vars from the variables the script needs
       const env: Record<string, string> = { ...process.env as Record<string, string> };
-      for (const varName of script.variables) {
-        if (variables[varName] !== undefined) {
-          env[varName.toUpperCase()] = variables[varName];
+      for (const v of script.variables) {
+        if (variables[v.id] !== undefined) {
+          env[v.id.toUpperCase()] = variables[v.id];
         }
       }
 
