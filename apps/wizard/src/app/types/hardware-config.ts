@@ -15,14 +15,13 @@ export interface HardwareScript {
   description: string;
   scriptPath: string;
   timeout?: number;
-  variables: string[];
+  variables: HardwareVariable[];
   expectedExitCode?: number;
 }
 
 export interface HardwareConfig {
   name: string;
   description: string;
-  variables: HardwareVariable[];
   scripts: HardwareScript[];
 }
 

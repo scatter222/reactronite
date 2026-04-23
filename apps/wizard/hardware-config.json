@@ -1,65 +1,6 @@
 {
   "name": "Hardware Configuration",
   "description": "Configure network switches and firewalls via local scripts",
-  "variables": [
-    {
-      "id": "firewallIp",
-      "label": "Firewall Management IP",
-      "type": "text",
-      "required": true,
-      "placeholder": "192.168.1.1",
-      "description": "Management IP address of the firewall"
-    },
-    {
-      "id": "switch1gIp",
-      "label": "1G Switch Management IP",
-      "type": "text",
-      "required": true,
-      "placeholder": "192.168.1.2",
-      "description": "Management IP address of the 1G switch"
-    },
-    {
-      "id": "switch10gIp",
-      "label": "10G Switch Management IP",
-      "type": "text",
-      "required": true,
-      "placeholder": "192.168.1.3",
-      "description": "Management IP address of the 10G switch"
-    },
-    {
-      "id": "serialPort",
-      "label": "Serial Port",
-      "type": "select",
-      "required": true,
-      "options": [
-        { "value": "/dev/ttyUSB0", "label": "/dev/ttyUSB0" },
-        { "value": "/dev/ttyUSB1", "label": "/dev/ttyUSB1" },
-        { "value": "/dev/ttyS0", "label": "/dev/ttyS0" },
-        { "value": "/dev/ttyS1", "label": "/dev/ttyS1" },
-        { "value": "/dev/ttyACM0", "label": "/dev/ttyACM0" }
-      ],
-      "default": "/dev/ttyUSB0",
-      "description": "Serial console port for device access"
-    },
-    {
-      "id": "mgmtVlan",
-      "label": "Management VLAN ID",
-      "type": "text",
-      "required": true,
-      "placeholder": "100",
-      "default": "100",
-      "description": "VLAN ID for management network"
-    },
-    {
-      "id": "dataVlan",
-      "label": "Data VLAN ID",
-      "type": "text",
-      "required": true,
-      "placeholder": "200",
-      "default": "200",
-      "description": "VLAN ID for data network"
-    }
-  ],
   "scripts": [
     {
       "id": "configure-firewall",
@@ -67,8 +8,50 @@
       "description": "Push firewall rules and zone configuration",
       "scriptPath": "scripts/configure-firewall.sh",
       "timeout": 120000,
-      "variables": ["firewallIp", "serialPort", "mgmtVlan", "dataVlan"],
-      "expectedExitCode": 0
+      "expectedExitCode": 0,
+      "variables": [
+        {
+          "id": "firewallIp",
+          "label": "Firewall Management IP",
+          "type": "text",
+          "required": true,
+          "placeholder": "192.168.1.1",
+          "description": "Management IP address of the firewall"
+        },
+        {
+          "id": "serialPort",
+          "label": "Serial Port",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "value": "/dev/ttyUSB0", "label": "/dev/ttyUSB0" },
+            { "value": "/dev/ttyUSB1", "label": "/dev/ttyUSB1" },
+            { "value": "/dev/ttyS0", "label": "/dev/ttyS0" },
+            { "value": "/dev/ttyS1", "label": "/dev/ttyS1" },
+            { "value": "/dev/ttyACM0", "label": "/dev/ttyACM0" }
+          ],
+          "default": "/dev/ttyUSB0",
+          "description": "Serial console port for device access"
+        },
+        {
+          "id": "mgmtVlan",
+          "label": "Management VLAN ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "100",
+          "default": "100",
+          "description": "VLAN ID for management network"
+        },
+        {
+          "id": "dataVlan",
+          "label": "Data VLAN ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "200",
+          "default": "200",
+          "description": "VLAN ID for data network"
+        }
+      ]
     },
     {
       "id": "configure-switch-1g",
@@ -76,8 +59,58 @@
       "description": "Configure VLANs, trunking, and port assignments on the 1G switch",
       "scriptPath": "scripts/configure-switch-1g.sh",
       "timeout": 120000,
-      "variables": ["switch1gIp", "serialPort", "mgmtVlan", "dataVlan"],
-      "expectedExitCode": 0
+      "expectedExitCode": 0,
+      "variables": [
+        {
+          "id": "switch1gIp",
+          "label": "1G Switch Management IP",
+          "type": "text",
+          "required": true,
+          "placeholder": "192.168.1.2",
+          "description": "Management IP address of the 1G switch"
+        },
+        {
+          "id": "serialPort",
+          "label": "Serial Port",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "value": "/dev/ttyUSB0", "label": "/dev/ttyUSB0" },
+            { "value": "/dev/ttyUSB1", "label": "/dev/ttyUSB1" },
+            { "value": "/dev/ttyS0", "label": "/dev/ttyS0" },
+            { "value": "/dev/ttyS1", "label": "/dev/ttyS1" },
+            { "value": "/dev/ttyACM0", "label": "/dev/ttyACM0" }
+          ],
+          "default": "/dev/ttyUSB0",
+          "description": "Serial console port for device access"
+        },
+        {
+          "id": "mgmtVlan",
+          "label": "Management VLAN ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "100",
+          "default": "100",
+          "description": "VLAN ID for management network"
+        },
+        {
+          "id": "dataVlan",
+          "label": "Data VLAN ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "200",
+          "default": "200",
+          "description": "VLAN ID for data network"
+        },
+        {
+          "id": "trunkPorts",
+          "label": "Trunk Ports",
+          "type": "text",
+          "required": false,
+          "placeholder": "1-4",
+          "description": "Range of ports to configure as trunks (1G specific)"
+        }
+      ]
     },
     {
       "id": "configure-switch-10g",
@@ -85,8 +118,63 @@
       "description": "Configure VLANs, trunking, and port assignments on the 10G switch",
       "scriptPath": "scripts/configure-switch-10g.sh",
       "timeout": 120000,
-      "variables": ["switch10gIp", "serialPort", "mgmtVlan", "dataVlan"],
-      "expectedExitCode": 0
+      "expectedExitCode": 0,
+      "variables": [
+        {
+          "id": "switch10gIp",
+          "label": "10G Switch Management IP",
+          "type": "text",
+          "required": true,
+          "placeholder": "192.168.1.3",
+          "description": "Management IP address of the 10G switch"
+        },
+        {
+          "id": "serialPort",
+          "label": "Serial Port",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "value": "/dev/ttyUSB0", "label": "/dev/ttyUSB0" },
+            { "value": "/dev/ttyUSB1", "label": "/dev/ttyUSB1" },
+            { "value": "/dev/ttyS0", "label": "/dev/ttyS0" },
+            { "value": "/dev/ttyS1", "label": "/dev/ttyS1" },
+            { "value": "/dev/ttyACM0", "label": "/dev/ttyACM0" }
+          ],
+          "default": "/dev/ttyUSB0",
+          "description": "Serial console port for device access"
+        },
+        {
+          "id": "mgmtVlan",
+          "label": "Management VLAN ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "100",
+          "default": "100",
+          "description": "VLAN ID for management network"
+        },
+        {
+          "id": "dataVlan",
+          "label": "Data VLAN ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "200",
+          "default": "200",
+          "description": "VLAN ID for data network"
+        },
+        {
+          "id": "uplinkSpeed",
+          "label": "Uplink Speed",
+          "type": "select",
+          "required": false,
+          "options": [
+            { "value": "10G", "label": "10 Gbps" },
+            { "value": "25G", "label": "25 Gbps" },
+            { "value": "40G", "label": "40 Gbps" }
+          ],
+          "default": "10G",
+          "description": "Negotiated uplink speed (10G specific)"
+        }
+      ]
     },
     {
       "id": "verify-connectivity",
@@ -94,8 +182,42 @@
       "description": "Verify all devices are reachable and responding",
       "scriptPath": "scripts/verify-connectivity.sh",
       "timeout": 60000,
-      "variables": ["firewallIp", "switch1gIp", "switch10gIp"],
-      "expectedExitCode": 0
+      "expectedExitCode": 0,
+      "variables": [
+        {
+          "id": "firewallIp",
+          "label": "Firewall IP",
+          "type": "text",
+          "required": true,
+          "placeholder": "192.168.1.1",
+          "description": "Firewall IP to ping"
+        },
+        {
+          "id": "switch1gIp",
+          "label": "1G Switch IP",
+          "type": "text",
+          "required": true,
+          "placeholder": "192.168.1.2",
+          "description": "1G switch IP to ping"
+        },
+        {
+          "id": "switch10gIp",
+          "label": "10G Switch IP",
+          "type": "text",
+          "required": true,
+          "placeholder": "192.168.1.3",
+          "description": "10G switch IP to ping"
+        },
+        {
+          "id": "pingCount",
+          "label": "Ping Count",
+          "type": "text",
+          "required": false,
+          "placeholder": "4",
+          "default": "4",
+          "description": "Number of pings per device"
+        }
+      ]
     }
   ]
 }
