@@ -1,9 +1,22 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import type { HardwareConfig, HardwareScript } from '../app/types/hardware-config';
 import { getConfigDir } from '../main';
+
+// Locate stdbuf so we can force line-buffered stdio on the child. Without this
+// (or PYTHONUNBUFFERED for Python), most libc/Python programs switch to fully
+// buffered output when stdout is a pipe, so logs only flush when the script
+// exits — which makes streaming output look like a single dump at the end.
+function findStdbuf(): string | null {
+  for (const p of ['/usr/bin/stdbuf', '/usr/local/bin/stdbuf', '/opt/homebrew/bin/stdbuf']) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+const STDBUF_PATH = findStdbuf();
 
 export function registerHardwareHandlers(mainWindow: BrowserWindow) {
   let hardwareConfig: HardwareConfig | null = null;
@@ -31,12 +44,19 @@ export function registerHardwareHandlers(mainWindow: BrowserWindow) {
           env[v.id.toUpperCase()] = variables[v.id];
         }
       }
+      // Force unbuffered output so logs stream live instead of arriving in one
+      // dump when the script exits.
+      env.PYTHONUNBUFFERED = '1';
+      env.PYTHONIOENCODING = env.PYTHONIOENCODING ?? 'utf-8';
 
       const startTime = Date.now();
 
       // Check if script exists first
       fs.access(scriptPath).then(() => {
-        const child = spawn('bash', [scriptPath], {
+        const [cmd, args] = STDBUF_PATH
+          ? [STDBUF_PATH, ['-oL', '-eL', 'bash', scriptPath]]
+          : ['bash', [scriptPath]];
+        const child = spawn(cmd, args, {
           env,
           shell: false,
         });
