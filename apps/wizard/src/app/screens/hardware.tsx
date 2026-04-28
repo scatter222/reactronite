@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import type {
   HardwareConfig, HardwareScript, HardwareVariable, ScriptResult,
 } from '@/app/types/hardware-config';
+import { parseAnsi, segmentStyle } from '@/app/lib/ansi';
 
 type Phase = 'select' | 'configure' | 'running' | 'done';
 
@@ -373,7 +374,12 @@ export function HardwareScreen() {
               ref={outputRef}
               className="p-4 flex-1 overflow-y-auto font-mono text-sm bg-slate-950/50 text-slate-300 whitespace-pre-wrap"
             >
-              {liveOutput || (phase === 'running' ? 'Starting script...' : (result?.output ?? ''))}
+              {(() => {
+                const text = liveOutput || (phase === 'running' ? 'Starting script...' : (result?.output ?? ''));
+                return parseAnsi(text).map((seg, i) => (
+                  <span key={i} style={segmentStyle(seg)}>{seg.text}</span>
+                ));
+              })()}
               {phase === 'running' && (
                 <div className="flex items-center gap-2 text-blue-400 mt-2">
                   <Loader2 className="w-3 h-3 animate-spin" />
