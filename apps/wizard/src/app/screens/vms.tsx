@@ -1,10 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { RefreshCw, Server, Rocket, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { RefreshCw, Server, Rocket, ChevronRight, Network, Terminal } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
+import { VMDependencyGraph } from '@/app/components/vm-dependency-graph';
+import {
+  normalizeTiers,
+  flattenTiers,
+  PHASE_COLORS,
+  PHASE_LABELS,
+  type InstallPhase,
+} from '@/app/lib/vm-graph';
 import { useLocation } from 'react-router-dom';
 import type { VMState, VMConfig, VMOperationResult, VMConfigFile } from '@/app/types/vm-config';
-
-type InstallPhase = 'pending' | 'creating' | 'starting' | 'waiting' | 'transferring' | 'post-boot' | 'complete' | 'error';
 
 interface LogEntry {
   vmName?: string;
@@ -12,27 +18,7 @@ interface LogEntry {
   timestamp: string;
 }
 
-const PHASE_LABELS: Record<InstallPhase, string> = {
-  pending: 'Pending',
-  creating: 'Creating',
-  starting: 'Starting',
-  waiting: 'Waiting for agent',
-  transferring: 'Transferring files',
-  'post-boot': 'Running post-boot',
-  complete: 'Complete',
-  error: 'Error',
-};
-
-const PHASE_COLORS: Record<InstallPhase, string> = {
-  pending: 'bg-slate-500',
-  creating: 'bg-blue-500 animate-pulse',
-  starting: 'bg-blue-500 animate-pulse',
-  waiting: 'bg-yellow-500 animate-pulse',
-  transferring: 'bg-yellow-500 animate-pulse',
-  'post-boot': 'bg-orange-500 animate-pulse',
-  complete: 'bg-green-500',
-  error: 'bg-red-500',
-};
+type PanelView = 'logs' | 'graph';
 
 export function VMScreen() {
   const location = useLocation();
@@ -45,6 +31,8 @@ export function VMScreen() {
   const [hasDeployed, setHasDeployed] = useState(false);
   const autoDeployRan = useRef(false);
   const [vmPhases, setVMPhases] = useState<Record<string, InstallPhase>>({});
+  const [tiers, setTiers] = useState<VMConfig[][]>([]);
+  const [panel, setPanel] = useState<PanelView>('logs');
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const setPhase = useCallback((vmName: string, phase: InstallPhase) => {
@@ -62,8 +50,10 @@ export function VMScreen() {
 
   // Auto-scroll logs
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    if (panel === 'logs') {
+      logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, panel]);
 
   const refreshVMs = async () => {
     setLoading(true);
@@ -81,6 +71,24 @@ export function VMScreen() {
     if (Object.keys(installerVariables).length > 0) {
       electron.ipcRenderer.invoke('vm:setInstallerVariables', installerVariables);
     }
+  }, []);
+
+  /**
+   * Load vm-config.json and normalise it into deployment tiers. Accepts both the
+   * flat `vms: [...]` shape and the explicit `vms: [[...], [...]]` tier shape.
+   */
+  const loadTiers = useCallback(async (): Promise<VMConfig[][]> => {
+    const config: VMConfigFile = await electron.ipcRenderer.invoke('vm:getConfig');
+    const normalized = normalizeTiers(config?.vms);
+    setTiers(normalized);
+    setVMPhases(prev => {
+      const next = { ...prev };
+      for (const vm of flattenTiers(normalized)) {
+        if (!next[vm.name]) next[vm.name] = 'pending';
+      }
+      return next;
+    });
+    return normalized;
   }, []);
 
   const deployVM = async (vm: VMConfig, existingNames: Set<string>) => {
@@ -112,8 +120,8 @@ export function VMScreen() {
   const deployConfig = async () => {
     setDeploying(true);
     try {
-      const config: VMConfigFile = await electron.ipcRenderer.invoke('vm:getConfig');
-      if (!config.vms || config.vms.length === 0) {
+      const deployTiers = await loadTiers();
+      if (deployTiers.length === 0) {
         addLog('No VMs defined in vm-config.json');
         setDeploying(false);
         return;
@@ -121,7 +129,7 @@ export function VMScreen() {
 
       // Initialize all phases to pending
       const phases: Record<string, InstallPhase> = {};
-      for (const tier of config.vms) {
+      for (const tier of deployTiers) {
         for (const vm of tier) {
           phases[vm.name] = 'pending';
         }
@@ -132,8 +140,8 @@ export function VMScreen() {
       const existingNames = new Set<string>((existingStates || []).map((s: VMState) => s.name));
 
       // Process tiers sequentially; VMs within a tier run in parallel
-      for (let i = 0; i < config.vms.length; i++) {
-        const tier = config.vms[i];
+      for (let i = 0; i < deployTiers.length; i++) {
+        const tier = deployTiers[i];
         addLog(`Starting tier ${i + 1} (${tier.map(v => v.name).join(', ')})`);
         await Promise.all(tier.map(vm => deployVM(vm, existingNames)));
       }
@@ -147,6 +155,8 @@ export function VMScreen() {
   };
 
   useEffect(() => {
+    loadTiers().catch(err => addLog(`Config error: ${err}`));
+
     refreshVMs().then(() => {
       if (!autoDeployRan.current) {
         autoDeployRan.current = true;
@@ -219,9 +229,42 @@ export function VMScreen() {
     ? logs.filter(l => l.vmName === selectedVM)
     : logs;
 
-  const allComplete = vms.length > 0 && Object.values(vmPhases).length > 0 &&
-    Object.values(vmPhases).every(p => p === 'complete');
-  const anyError = Object.values(vmPhases).some(p => p === 'error');
+  const vmStateByName = useMemo(() => {
+    const map: Record<string, VMState> = {};
+    vms.forEach(vm => { map[vm.name] = vm; });
+    return map;
+  }, [vms]);
+
+  /** Latest log line per VM, shown as the node subtitle in the graph. */
+  const lastLogByVM = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const entry of logs) {
+      if (entry.vmName && entry.message) map[entry.vmName] = entry.message;
+    }
+    return map;
+  }, [logs]);
+
+  /** Sidebar list: every configured VM, plus anything libvirt already knows about. */
+  const listedVMs = useMemo(() => {
+    const names = flattenTiers(tiers).map(vm => vm.name);
+    vms.forEach(vm => { if (!names.includes(vm.name)) names.push(vm.name); });
+    return names;
+  }, [tiers, vms]);
+
+  const phaseFor = useCallback(
+    (name: string): InstallPhase =>
+      vmPhases[name] || (vmStateByName[name]?.state === 'running' ? 'complete' : 'pending'),
+    [vmPhases, vmStateByName]
+  );
+
+  const openLogsFor = useCallback((vmName: string) => {
+    setSelectedVM(vmName);
+    setPanel('logs');
+  }, []);
+
+  const trackedPhases = listedVMs.map(phaseFor);
+  const allComplete = trackedPhases.length > 0 && trackedPhases.every(p => p === 'complete');
+  const anyError = trackedPhases.some(p => p === 'error');
 
   return (
     <div className="h-full flex flex-col bg-slate-900 overflow-hidden">
@@ -240,7 +283,28 @@ export function VMScreen() {
             <span className="text-sm text-red-400">Errors occurred</span>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {/* View switcher: raw logs vs dependency graph */}
+          <div className="flex items-center rounded-lg border border-slate-700 bg-slate-800/60 p-0.5">
+            {([
+              { id: 'logs' as const, label: 'Logs', Icon: Terminal },
+              { id: 'graph' as const, label: 'Graph', Icon: Network }
+            ]).map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                onClick={() => setPanel(id)}
+                aria-pressed={panel === id}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  panel === id
+                    ? 'bg-slate-700 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </button>
+            ))}
+          </div>
           <Button variant="outline" size="sm" onClick={deployConfig} disabled={deploying}>
             <Rocket className={`w-4 h-4 ${deploying ? 'animate-pulse' : ''}`} />
             {deploying ? 'Deploying...' : hasDeployed ? 'Redeploy' : 'Deploy'}
@@ -268,34 +332,35 @@ export function VMScreen() {
             </div>
           </div>
           <div className="flex-1 overflow-auto p-2 space-y-1">
-            {vms.length === 0 ? (
+            {listedVMs.length === 0 ? (
               <div className="p-4 text-center text-slate-500 text-sm">
                 {loading ? 'Loading...' : 'No VMs found'}
               </div>
             ) : (
-              vms.map(vm => {
-                const phase = vmPhases[vm.name] || (vm.state === 'running' ? 'complete' : 'pending');
+              listedVMs.map(name => {
+                const phase = phaseFor(name);
+                const state = vmStateByName[name];
                 return (
                   <div
-                    key={vm.name}
-                    onClick={() => setSelectedVM(vm.name)}
+                    key={name}
+                    onClick={() => setSelectedVM(name)}
                     className={`px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-                      selectedVM === vm.name
+                      selectedVM === name
                         ? 'bg-slate-800 border border-slate-700'
                         : 'hover:bg-slate-800/50'
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className={`w-2 h-2 shrink-0 rounded-full ${PHASE_COLORS[phase]}`} />
-                      <span className="text-white text-sm font-medium truncate">{vm.name}</span>
-                      {selectedVM === vm.name && (
+                      <span className="text-white text-sm font-medium truncate">{name}</span>
+                      {selectedVM === name && (
                         <ChevronRight className="w-3 h-3 text-slate-500 shrink-0 ml-auto" />
                       )}
                     </div>
                     <div className="ml-4 mt-0.5">
                       <span className="text-xs text-slate-400">{PHASE_LABELS[phase]}</span>
-                      {vm.ipAddress && (
-                        <span className="text-xs text-slate-500 ml-2">{vm.ipAddress}</span>
+                      {state?.ipAddress && (
+                        <span className="text-xs text-slate-500 ml-2">{state.ipAddress}</span>
                       )}
                     </div>
                   </div>
@@ -305,33 +370,44 @@ export function VMScreen() {
           </div>
         </div>
 
-        {/* Log Panel */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <div className="shrink-0 px-3 py-2 border-b border-slate-800 flex items-center justify-between">
-            <span className="text-sm text-slate-400">
-              {selectedVM ? `Logs — ${selectedVM}` : 'Logs — All VMs'}
-            </span>
-            <Button variant="ghost" size="sm" onClick={() => setLogs([])}>
-              Clear
-            </Button>
+        {panel === 'graph' ? (
+          <VMDependencyGraph
+            tiers={tiers}
+            phases={vmPhases}
+            vmStates={vmStateByName}
+            lastLogByVM={lastLogByVM}
+            selectedVM={selectedVM}
+            onOpenLogs={openLogsFor}
+          />
+        ) : (
+          /* Log Panel */
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
+            <div className="shrink-0 px-3 py-2 border-b border-slate-800 flex items-center justify-between">
+              <span className="text-sm text-slate-400">
+                {selectedVM ? `Logs — ${selectedVM}` : 'Logs — All VMs'}
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => setLogs([])}>
+                Clear
+              </Button>
+            </div>
+            <div className="flex-1 overflow-auto p-3 bg-slate-950">
+              {filteredLogs.length === 0 ? (
+                <p className="text-slate-600 text-sm">No output yet</p>
+              ) : (
+                filteredLogs.map((entry, i) => (
+                  <div key={i} className="font-mono text-xs leading-5 break-all">
+                    <span className="text-slate-600">{entry.timestamp}</span>
+                    {entry.vmName && (
+                      <span className="text-blue-400 ml-1">[{entry.vmName}]</span>
+                    )}
+                    <span className="text-slate-300 ml-1">{entry.message}</span>
+                  </div>
+                ))
+              )}
+              <div ref={logEndRef} />
+            </div>
           </div>
-          <div className="flex-1 overflow-auto p-3 bg-slate-950">
-            {filteredLogs.length === 0 ? (
-              <p className="text-slate-600 text-sm">No output yet</p>
-            ) : (
-              filteredLogs.map((entry, i) => (
-                <div key={i} className="font-mono text-xs leading-5 break-all">
-                  <span className="text-slate-600">{entry.timestamp}</span>
-                  {entry.vmName && (
-                    <span className="text-blue-400 ml-1">[{entry.vmName}]</span>
-                  )}
-                  <span className="text-slate-300 ml-1">{entry.message}</span>
-                </div>
-              ))
-            )}
-            <div ref={logEndRef} />
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
