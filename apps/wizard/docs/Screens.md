@@ -6,35 +6,40 @@ The application has two primary screens, both accessible via the router.
 
 The default landing page. A dashboard for managing KVM/libvirt virtual machines.
 
-### Layout
+### Views
+
+The main panel has two tabs, switched from the header:
+
+- **Logs** — the streaming output panel (default). Filtered to the VM selected in the sidebar, or all VMs.
+- **Graph** — the deployment dependency tree (`src/app/components/vm-dependency-graph.tsx`).
 
 ```
-┌──────────────────────────────────────────────┐
-│  [Server Icon] Virtual Machines  [Deploy][Refresh] │
-├────────────────┬─────────────────────────────┤
-│   VM List      │   Detail Panel              │
-│                │                              │
-│  ● vm-name-1  │   vm-name-1                 │
-│    running     │   [Run Command][Stop][Force] │
-│    10.0.0.1    │                              │
-│                │   State: running             │
-│  ● vm-name-2  │   IP: 10.0.0.1              │
-│    shut off    │   MAC: 52:54:00:xx:xx:xx    │
-│                │                              │
-│                │   ┌─── Output Log ──────┐   │
-│                │   │ [timestamp] output.. │   │
-│                │   │ [timestamp] output.. │   │
-│                │   └─────────────────────┘   │
-└────────────────┴─────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│ [Server] VM Deployment      [Logs|Graph][Deploy][↻]  │
+├───────────────┬──────────────────────────────────────┤
+│  VM List      │ 2/5 complete [====----] 46%  [-][+][⤢]│
+│               │  ┌──── TIER 1 ───────────────────┐   │
+│  ● ipa        │  │        ( ✓ ) ipa              │   │
+│    Complete   │  └──────────────┬────────────────┘   │
+│               │  ┌──── TIER 2 ──┴────────────────┐   │
+│  ● splunk     │  │  ( ◐ ) splunk   ( ◐ ) worker  │   │
+│    Post-boot  │  └───────────────────────────────┘   │
+└───────────────┴──────────────────────────────────────┘
 ```
+
+### Graph View
+
+- **Layout**: VMs are laid out top-down in tiers. Tier = dependency depth from `depends_on`, so VMs on the same row deploy in parallel. Edges are drawn between real dependencies; a dependency that closes a cycle is drawn dashed red instead of shifting the layout.
+- **Progress**: each node has a ring showing phase progress, a spinner while the VM is being worked on, a tick when complete and a cross on error. Edges animate while work flows from a completed parent into an active child.
+- **Interaction**: click (or focus + Enter) a node to jump back to the Logs tab filtered to that VM. Drag to pan, scroll to zoom, double-click or the fit button to re-fit.
+- **Offline**: rendered as plain SVG with CSS animations — no charting or graph library, nothing fetched at runtime.
 
 ### Features
 
-- **VM List** (left panel): Shows all VMs with state indicators (green=running, yellow=paused, grey=stopped, red=error)
-- **Detail Panel** (right): Shows selected VM info with action buttons
+- **VM List** (left panel): Every configured VM plus anything libvirt already knows about, with phase indicators
 - **Deploy**: Reads `vm-config.json`, creates any missing VMs, starts all of them with post-boot configuration
-- **Actions**: Start, Stop, Force Stop, Delete, Run Command (via prompt)
-- **Output Log**: Real-time scrolling log of all operations (capped at 100 lines)
+- **Tiers**: `vms` may be a flat list or a list of tiers (`[[...], [...]]`). A flat list is grouped by dependency depth, with `priority` ordering VMs inside a tier
+- **Output Log**: Real-time scrolling log of all operations (capped at 500 lines)
 
 ### IPC Events Listened
 

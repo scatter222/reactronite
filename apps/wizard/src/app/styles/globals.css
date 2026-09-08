@@ -252,3 +252,41 @@
     @apply bg-red-600/80;
   }
 }
+
+/* VM dependency graph animations (self-contained, no external assets) */
+@keyframes vm-graph-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes vm-graph-flow {
+  to { stroke-dashoffset: -28; }
+}
+
+@keyframes vm-graph-glow {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.75; }
+}
+
+.vm-graph-spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: vm-graph-spin 1.1s linear infinite;
+}
+
+.vm-graph-flow {
+  stroke-dasharray: 7 7;
+  animation: vm-graph-flow 0.9s linear infinite;
+}
+
+.vm-graph-glow {
+  animation: vm-graph-glow 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vm-graph-spin,
+  .vm-graph-flow,
+  .vm-graph-glow {
+    animation: none;
+  }
+}
