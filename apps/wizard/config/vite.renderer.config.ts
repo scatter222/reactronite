@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import tailwindcss from '@tailwindcss/vite';
 import { type ConfigEnv, defineConfig } from 'vite';
 import { checker } from 'vite-plugin-checker';
@@ -22,7 +24,24 @@ export default defineConfig((env) => {
       outDir: `.vite/renderer/${name}`
     },
     resolve: {
-      preserveSymlinks: true
+      // Must stay false for workspace packages. A workspace dependency is a
+      // symlink; with preserveSymlinks the resolved id keeps the
+      // `node_modules/@reactronite/ui/...` shape, which makes Vite treat the
+      // package as a prebuilt dep and breaks HMR on its source files.
+      // Resolving through the symlink to `packages/ui/src/...` gives normal
+      // dev-server behaviour — see `server.fs.allow` below.
+      preserveSymlinks: false,
+      // A shared component package that ends up next to a second copy of React
+      // throws "Invalid hook call" on the first useState. Force one copy.
+      dedupe: ['react', 'react-dom']
+    },
+    server: {
+      fs: {
+        // Vite infers this from pnpm-workspace.yaml, but being explicit means
+        // an out-of-tree `file:../some-lib` dependency also works instead of
+        // failing with "is outside of Vite serving allow list".
+        allow: [path.resolve(root, '..', '..')]
+      }
     },
     clearScreen: false,
     plugins: [

@@ -1,0 +1,14 @@
+{
+  "name": "reactronite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.11.0",
+  "description": "Environment provisioning and configuration platform (workspace root).",
+  "scripts": {
+    "dev": "pnpm --filter installation-wizard dev",
+    "package": "pnpm --filter installation-wizard package",
+    "make": "pnpm --filter installation-wizard make",
+    "lint": "pnpm -r lint"
+  }
+}

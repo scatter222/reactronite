@@ -13,7 +13,9 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "#ui": ["../../packages/ui/src/index.ts"],
+      "#ui/*": ["../../packages/ui/src/*"]
     }
   }
 }
