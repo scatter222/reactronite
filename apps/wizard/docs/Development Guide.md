@@ -3,17 +3,19 @@
 ## Prerequisites
 
 - **Node.js** (compatible with Electron 37)
-- **pnpm** 10.11.0+
+- **npm** 10+ (workspaces)
 - For VM features: **libvirt**, **QEMU**, **virsh** installed on the host
 
 ## Getting Started
 
 ```bash
-# Install dependencies
-pnpm install
+# Install dependencies from the REPOSITORY ROOT — this is an npm workspace.
+# Installing from apps/wizard skips the workspace and won't link packages/ui.
+cd /path/to/reactronite
+npm install
 
 # Start development mode (with HMR)
-pnpm dev
+npm run dev
 ```
 
 This launches the Electron app with:
@@ -26,24 +28,24 @@ This launches the Electron app with:
 
 | Script | Purpose |
 |--------|---------|
-| `pnpm dev` | Development mode with HMR |
-| `pnpm package` | Package the app (no distributable) |
-| `pnpm make` | Create platform-specific distributables |
-| `pnpm publish` | Publish to configured publishers |
-| `pnpm lint` | Run ESLint |
-| `pnpm lint:fix` | Auto-fix lint issues |
-| `pnpm clean` | Remove node_modules, .vite, lockfile |
+| `npm run dev` | Development mode with HMR |
+| `npm run package` | Package the app (no distributable) |
+| `npm run make` | Create platform-specific distributables |
+| `npm run publish` | Publish to configured publishers |
+| `npm run lint` | Run ESLint |
+| `npm run lint:fix` | Auto-fix lint issues |
+| `npm run clean` | Remove node_modules and .vite |
 
 ## Versioning
 
 Uses `standard-version` for semantic versioning:
 
 ```bash
-pnpm release           # Auto-detect version bump
-pnpm major             # Major version bump (1.0.0 → 2.0.0)
-pnpm minor             # Minor version bump (1.0.0 → 1.1.0)
-pnpm patch             # Patch version bump (1.0.0 → 1.0.1)
-pnpm push-release      # Push tags to origin
+npm run release           # Auto-detect version bump
+npm run major             # Major version bump (1.0.0 → 2.0.0)
+npm run minor             # Minor version bump (1.0.0 → 1.1.0)
+npm run patch             # Patch version bump (1.0.0 → 1.0.1)
+npm run push-release      # Push tags to origin
 ```
 
 ## Code Quality
@@ -51,7 +53,7 @@ pnpm push-release      # Push tags to origin
 ### Linting
 
 ESLint 9 with `neostandard` config. Enforced via:
-- `pnpm lint` / `pnpm lint:fix`
+- `npm run lint` / `npm run lint:fix`
 - Pre-commit hook via `husky` + `lint-staged`
 
 ### Commits
@@ -107,7 +109,7 @@ For testing the installer and VM features:
 
 ```bash
 # Create distributables for current platform
-pnpm make
+npm run make
 ```
 
 Output formats:

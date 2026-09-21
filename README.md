@@ -10,13 +10,13 @@ packages/ui/        # Shared React component library (buttons, inputs, design to
 infra/test-env/     # Terraform — Azure VM with nested KVM for dev/testing
 ```
 
-This is a **pnpm workspace**. Run `pnpm install` from the repository root, not
+This is an **npm workspace**. Run `npm install` from the repository root, not
 from inside an app — installing from an app directory skips the workspace and
 won't link shared packages.
 
 ```bash
-pnpm install
-pnpm dev            # runs apps/wizard
+npm install
+npm run dev            # runs apps/wizard
 ```
 
 ## Apps
@@ -26,8 +26,8 @@ pnpm dev            # runs apps/wizard
 Electron desktop app for standing up, configuring, and managing KVM virtual machines via libvirt. Includes a guided installer wizard and a VM management dashboard.
 
 ```bash
-pnpm install        # from the repository root
-pnpm dev
+npm install        # from the repository root
+npm run dev
 ```
 
 See [apps/wizard/docs/](apps/wizard/docs/) for detailed documentation.

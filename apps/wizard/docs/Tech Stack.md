@@ -25,7 +25,7 @@
 
 | Tool | Purpose |
 |------|---------|
-| pnpm 10.11.0 | Package manager |
+| npm 10+ (workspaces) | Package manager |
 | ESLint 9 + neostandard | Linting |
 | Husky 9.1.7 | Git hooks |
 | lint-staged | Pre-commit linting |

@@ -112,15 +112,15 @@ Key settings:
 ## NPM Scripts
 
 ```bash
-pnpm dev          # Start dev server with HMR
-pnpm package      # Package app (no distributable)
-pnpm make         # Create platform distributables
-pnpm publish      # Publish to configured publishers
-pnpm lint         # ESLint check
-pnpm lint:fix     # ESLint auto-fix
-pnpm clean        # Remove node_modules, .vite, lockfile
-pnpm release      # Bump version with standard-version
-pnpm major/minor/patch  # Version bump shortcuts
+npm run dev          # Start dev server with HMR
+npm run package      # Package app (no distributable)
+npm run make         # Create platform distributables
+npm run publish      # Publish to configured publishers
+npm run lint         # ESLint check
+npm run lint:fix     # ESLint auto-fix
+npm run clean        # Remove node_modules and .vite
+npm run release      # Bump version with standard-version
+npm run major/minor/patch  # Version bump shortcuts
 ```
 
 ## Related Pages

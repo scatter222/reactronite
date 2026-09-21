@@ -37,9 +37,9 @@ export default defineConfig((env) => {
     },
     server: {
       fs: {
-        // Vite infers this from pnpm-workspace.yaml, but being explicit means
-        // an out-of-tree `file:../some-lib` dependency also works instead of
-        // failing with "is outside of Vite serving allow list".
+        // Vite infers the workspace root from the git root, but being explicit
+        // means an out-of-tree `file:../some-lib` dependency also works instead
+        // of failing with "is outside of Vite serving allow list".
         allow: [path.resolve(root, '..', '..')]
       }
     },

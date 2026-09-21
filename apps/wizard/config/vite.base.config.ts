@@ -10,21 +10,31 @@ export const builtins = ['electron', ...builtinModules.flatMap((m) => [m, `node:
 const dependencies = ('dependencies' in pkg ? pkg.dependencies : {}) as Record<string, string>;
 
 /**
- * A dependency that lives on disk rather than in the registry.
+ * Dependencies that live on disk in this repo rather than in the registry.
+ *
+ * ⚠️ Add every new workspace package here.
  *
  * These must NOT be externalized. An external import survives into
  * `.vite/build/*.js` as a bare specifier that Node resolves from
- * `node_modules` at runtime — but a local dependency is only a symlink
+ * `node_modules` at runtime — but a workspace dependency is only a symlink
  * pointing outside the app directory, and `asar: true` plus the
- * `OnlyLoadAppFromAsar` fuse means nothing outside the archive can be
- * loaded. The packaged app dies with "Cannot find module" even though
- * `pnpm dev` worked fine. Bundling them sidesteps the problem entirely.
+ * `OnlyLoadAppFromAsar` fuse (see forge.config.ts) means nothing outside the
+ * archive can be loaded. The packaged app then dies with "Cannot find module"
+ * even though `npm run dev` worked fine. Bundling them sidesteps it entirely.
+ *
+ * This is a hand-maintained list because npm does not support pnpm's
+ * `workspace:` protocol — a workspace dependency is written as `"*"`, which is
+ * indistinguishable from a registry version range. The `file:`/`link:` check
+ * still catches a dependency pointed at a directory outside the repo.
  */
-const isLocalDependency = (spec: string) => /^(?:file|link|workspace):/.test(spec);
+const LOCAL_PACKAGES = ['@reactronite/ui'];
+
+const isLocalDependency = (name: string, spec: string) =>
+  LOCAL_PACKAGES.includes(name) || /^(?:file|link|workspace):/.test(spec);
 
 export const external = [
   ...builtins,
-  ...Object.keys(dependencies).filter((name) => !isLocalDependency(dependencies[name]))
+  ...Object.keys(dependencies).filter((name) => !isLocalDependency(name, dependencies[name]))
 ];
 
 export function getBuildConfig (env: ConfigEnv<'build'>): UserConfig {

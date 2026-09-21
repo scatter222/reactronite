@@ -19,8 +19,8 @@ Please note that this project is released with a Contributor Code of Conduct. By
 To set up your development environment, follow these steps:
 
 1. Clone this repository.
-2. Install dependencies with `pnpm install`.
-3. Run the application with `pnpm dev`.
+2. Install dependencies with `npm install`.
+3. Run the application with `npm run dev`.
 
 ## License
 

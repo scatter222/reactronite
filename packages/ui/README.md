@@ -21,14 +21,14 @@ error comes from exactly one of them, and fixing the wrong layer does nothing.
 
 | Layer | Question it answers | Where it's configured |
 | --- | --- | --- |
-| **Package manager** | Does `node_modules/@reactronite/ui` exist? | `pnpm-workspace.yaml`, `dependencies` |
+| **Package manager** | Does `node_modules/@reactronite/ui` exist? | root `package.json` → `workspaces` |
 | **TypeScript** | Does `#ui` typecheck and go-to-definition? | `tsconfig.json` → `paths` |
 | **Vite / Rollup** | Can the bundler read and transform the source? | `config/vite.*.config.ts` |
 | **Electron Forge** | Does it survive `asar` packaging? | `forge.config.ts`, the `external` list |
 
 The trap: **dev only exercises the first three.** A setup can be perfect in
-`pnpm dev` and still produce a packaged app that dies on launch, because layer
-four only runs during `pnpm make`. Always smoke-test with `pnpm make` before
+`npm run dev` and still produce a packaged app that dies on launch, because layer
+four only runs during `npm run make`. Always smoke-test with `npm run make` before
 believing a change works.
 
 ---
@@ -52,15 +52,23 @@ Adding `blah` there meant Rollup never bundled it, so `.vite/build/main.js`
 shipped a bare `import ... from 'blah'` that Node had to resolve from
 `node_modules` at runtime.
 
-That's fine in dev. After `pnpm make` it's `Cannot find module 'blah'`, because
+That's fine in dev. After `npm run make` it's `Cannot find module 'blah'`, because
 `asar: true` plus the `OnlyLoadAppFromAsar` and
 `EnableEmbeddedAsarIntegrityValidation` fuses (`forge.config.ts`) mean nothing
 outside the archive can load — and a symlink pointing out of the app directory
 is exactly that.
 
-**Fixed:** `vite.base.config.ts` now filters out `file:` / `link:` / `workspace:`
-dependencies before building `external`, so local packages get *bundled into*
-the output. Nothing needs to exist in `node_modules` at runtime.
+**Fixed:** `vite.base.config.ts` now drops local packages before building
+`external`, so they get *bundled into* the output. Nothing needs to exist in
+`node_modules` at runtime.
+
+⚠️ **This list is hand-maintained.** npm doesn't support pnpm's `workspace:`
+protocol, so a workspace dependency is written `"@reactronite/ui": "*"` — which
+is indistinguishable from a registry version range. `vite.base.config.ts`
+therefore keeps an explicit `LOCAL_PACKAGES` array. **Add every new workspace
+package to it**, or a packaged build will fail with `Cannot find module`. The
+`file:` / `link:` check still catches dependencies pointed at a directory
+outside the repo.
 
 ### c. `preserveSymlinks: true` picked which error you got
 
@@ -79,8 +87,8 @@ The renderer config had this on, which decides which failure you hit:
 
 Two copies of React → `Invalid hook call` the moment a shared component uses a
 hook. **Fixed** three ways at once: `react`/`react-dom` are `peerDependencies`
-here (so this package never installs its own), `node-linker=hoisted` keeps one
-flat copy, and `resolve.dedupe` in the renderer config is the backstop.
+here (so this package never installs its own), npm hoists a single flat copy to
+the workspace root, and `resolve.dedupe` in the renderer config is the backstop.
 
 ### e. Tailwind v4 silently purges shared classes
 
@@ -153,17 +161,17 @@ import { Button } from '#ui/components/button';   // deep import — escape hatc
 
 ```bash
 cd /home/user/reactronite     # the workspace root, NOT apps/wizard
-pnpm install                  # links @reactronite/ui into apps/wizard
-pnpm dev
+npm install                  # links @reactronite/ui into apps/wizard
+npm run dev
 ```
 
 Two things that catch people out:
 
-- **Install from the root from now on.** Running `pnpm install` inside
+- **Install from the root from now on.** Running `npm install` inside
   `apps/wizard` ignores the workspace and won't create the link.
-- **`apps/wizard/pnpm-lock.yaml` is now dead.** The workspace keeps a single
-  lockfile at the root. Delete the app-level one once the root install works,
-  along with the stale `package-lock.json` sitting next to it.
+- **One lockfile, at the root.** The app-level lockfiles are gone. npm
+  workspaces keep a single `package-lock.json` beside the root
+  `package.json`; two lockfiles resolve to two dependency trees.
 
 ---
 
@@ -208,7 +216,7 @@ nothing in the app changed. To finish the migration, per component:
 2. Export it from `src/index.ts`.
 3. In the app, swap `@/app/components/ui/x` for `#ui` and delete the old file.
 
-Do it one component at a time and keep `pnpm dev` running; a missed import
+Do it one component at a time and keep `npm run dev` running; a missed import
 surfaces immediately.
 
 ---
@@ -243,14 +251,20 @@ mkdir -p apps/other-app      # scaffold it however you like
 Then in its `package.json`:
 
 ```jsonc
-"dependencies": { "@reactronite/ui": "workspace:*" },
+"dependencies": { "@reactronite/ui": "*" },
 "imports": { "#ui": "@reactronite/ui", "#ui/*": "@reactronite/ui/*" }
 ```
 
-...the same two `paths` entries in its `tsconfig.json`, the
-`@import "@reactronite/ui/styles.css"` line in its entry CSS, and the same
-`resolve` / `server.fs.allow` block in its renderer Vite config. Then
-`pnpm install` from the root. That's the whole checklist.
+`"*"` is how npm writes a workspace dependency — it resolves to the local
+package because `apps/*` is in the root `workspaces` array, not to whatever is
+on the registry. (npm has no `workspace:` protocol; writing `"workspace:*"`
+fails outright with `EUNSUPPORTEDPROTOCOL`.)
+
+Then: the same two `paths` entries in its `tsconfig.json`, the
+`@import "@reactronite/ui/styles.css"` line in its entry CSS, the same
+`resolve` / `server.fs.allow` block in its renderer Vite config, and
+`LOCAL_PACKAGES` in its `vite.base.config.ts`. Then `npm install` from the
+root. That's the whole checklist.
 
 ---
 
@@ -262,7 +276,7 @@ because this is also the pattern people most often get subtly wrong:
 
 **Keep it in the monorepo.** The single biggest improvement over `file:../blah`
 isn't any config flag — it's that the library now lives *inside* the repo. One
-`pnpm install`, one lockfile, one React, atomic commits across app and library,
+`npm install`, one lockfile, one React, atomic commits across app and library,
 and CI that can actually build the thing. An out-of-tree `file:` dependency
 means the app is unbuildable on any machine that doesn't happen to have the
 sibling directory checked out at the right commit.
@@ -293,10 +307,12 @@ Shared *tokens* with per-app components is a perfectly good end state.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `Cannot find module '@reactronite/ui'` | Installed from `apps/wizard` instead of the root | `pnpm install` from the workspace root |
-| Works in `pnpm dev`, packaged app won't launch | Local dep externalized, symlink can't live in the asar | The `isLocalDependency` filter in `vite.base.config.ts` |
+| `Cannot find module '@reactronite/ui'` | Installed from `apps/wizard` instead of the root | `npm install` from the workspace root |
+| Works in `npm run dev`, packaged app won't launch | Local dep externalized, symlink can't live in the asar | Add it to `LOCAL_PACKAGES` in `vite.base.config.ts` |
+| `EUNSUPPORTEDPROTOCOL "workspace:"` | npm has no `workspace:` protocol | Write the dependency as `"*"` |
+| `ERESOLVE unable to resolve dependency tree` | npm enforces peer ranges that pnpm only warned about | Fix the version, don't reach for `--legacy-peer-deps` |
 | `is outside of Vite serving allow list` | Real path outside the Vite root | `server.fs.allow` in the renderer config |
-| `Invalid hook call` | Two copies of React | `resolve.dedupe`; check `pnpm why react` |
+| `Invalid hook call` | Two copies of React | `resolve.dedupe`; check `npm ls react` |
 | Shared components render **unstyled** | Tailwind v4 skips `node_modules` | `@source "../";` in `theme.css` |
 | `Failed to parse source for import analysis ... invalid JS syntax` | Bundler got raw TS it wasn't set up to transform | Check the `exports` map points at real paths |
 | Editor red squiggles on `#ui`, build fine | `tsconfig.json` `paths` out of sync with `imports` | Make both point at the same files; restart the TS server |
@@ -304,12 +320,31 @@ Shared *tokens* with per-app components is a perfectly good end state.
 
 ### Things not to do
 
-- **Don't** `npm link` / `pnpm link --global`. It creates a symlink the
-  lockfile knows nothing about — it breaks on every other machine, and on
-  yours after the next install.
+- **Don't** `npm link`. Workspaces already do this, correctly. `npm link`
+  creates a symlink the lockfile knows nothing about — it breaks on every
+  other machine, and on yours after the next install.
 - **Don't** add a `build` step to this package "to be safe." Source exports are
   simpler and HMR works.
-- **Don't** commit `apps/wizard/pnpm-lock.yaml` once the root lockfile exists.
-  Two lockfiles resolve to two dependency trees.
+- **Don't** reintroduce a per-app lockfile. One `package-lock.json`, at the
+  root; two lockfiles resolve to two dependency trees.
+- **Don't** default to `--legacy-peer-deps` when npm reports `ERESOLVE`. It
+  hides real conflicts. Resolve the version instead — see
+  `@electron/fuses` below.
 - **Don't** import app code from this package. Dependencies point one way:
   app → ui, never back.
+
+---
+
+## 10. Note on `@electron/fuses`
+
+`apps/wizard` pins `@electron/fuses` to `^1.8.0`, not `^2.x`, because
+`@electron-forge/plugin-fuses` — including the latest 7.11.2 — still declares
+`peerDependencies: { "@electron/fuses": "^1.0.0" }`.
+
+This conflict predates the workspace; pnpm merely printed a warning and carried
+on with v2 installed. npm treats an unmet peer range as a hard error, so
+`npm install` fails with `ERESOLVE` until the versions line up. The fuse
+options used in `forge.config.ts` (`FuseV1Options`, `FuseVersion.V1`) are the
+v1 API and are unchanged, so the pin costs nothing.
+
+Revisit when a forge release widens that peer range.
