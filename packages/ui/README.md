@@ -266,6 +266,11 @@ Then: the same two `paths` entries in its `tsconfig.json`, the
 `LOCAL_PACKAGES` in its `vite.base.config.ts`. Then `npm install` from the
 root. That's the whole checklist.
 
+If you're moving an **existing** app in rather than scaffolding a fresh one,
+also delete its `package-lock.json` and its `.npmrc`. Both are inert at best
+inside a workspace, and the stale lockfile actively breaks Electron Forge —
+§11.
+
 ---
 
 ## 8. Is a shared UI package the right pattern?
@@ -310,6 +315,7 @@ Shared *tokens* with per-app components is a perfectly good end state.
 | `Cannot find module '@reactronite/ui'` | Installed from `apps/wizard` instead of the root | `npm install` from the workspace root |
 | Works in `npm run dev`, packaged app won't launch | Local dep externalized, symlink can't live in the asar | Add it to `LOCAL_PACKAGES` in `vite.base.config.ts` |
 | `EUNSUPPORTEDPROTOCOL "workspace:"` | npm has no `workspace:` protocol | Write the dependency as `"*"` |
+| `Cannot find the package "electron"` | Forge finds hoisted Electron via a lockfile; a stale per-app lockfile misdirects it | See §11 — usually a leftover `apps/<app>/package-lock.json` |
 | `ERESOLVE unable to resolve dependency tree` | npm enforces peer ranges that pnpm only warned about | Fix the version, don't reach for `--legacy-peer-deps` |
 | `is outside of Vite serving allow list` | Real path outside the Vite root | `server.fs.allow` in the renderer config |
 | `Invalid hook call` | Two copies of React | `resolve.dedupe`; check `npm ls react` |
@@ -326,7 +332,10 @@ Shared *tokens* with per-app components is a perfectly good end state.
 - **Don't** add a `build` step to this package "to be safe." Source exports are
   simpler and HMR works.
 - **Don't** reintroduce a per-app lockfile. One `package-lock.json`, at the
-  root; two lockfiles resolve to two dependency trees.
+  root. Two lockfiles resolve to two dependency trees, *and* a per-app one
+  breaks Electron Forge's hoisted-module lookup outright — see §11.
+- **Don't** keep a per-app `.npmrc`. npm ignores it inside a workspace
+  (`npm warn config ignoring workspace config at ...`); root `.npmrc` only.
 - **Don't** default to `--legacy-peer-deps` when npm reports `ERESOLVE`. It
   hides real conflicts. Resolve the version instead — see
   `@electron/fuses` below.
@@ -348,3 +357,82 @@ options used in `forge.config.ts` (`FuseV1Options`, `FuseVersion.V1`) are the
 v1 API and are unchanged, so the pin costs nothing.
 
 Revisit when a forge release widens that peer range.
+
+---
+
+## 11. `Cannot find the package "electron"` in a workspace
+
+The single most likely thing to break when moving an Electron Forge app into a
+workspace. The message looks like:
+
+```
+Cannot find the package "electron". Perhaps you need to run install it in "<repo>/apps/wizard"?
+```
+
+### Why it happens
+
+npm hoists `electron` to the **workspace root** `node_modules`, not into
+`apps/wizard/node_modules`. Forge handles that, but by a mechanism worth
+knowing (`@electron-forge/core-utils/dist/electron-version.js`):
+
+1. Look for `<app>/node_modules/electron`. Under workspaces this does **not**
+   exist.
+2. Fall back: walk up from the app directory with `find-up` until a
+   **lockfile** (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) is found,
+   then look in `<that directory>/node_modules/electron`.
+
+So Forge locates hoisted Electron **purely by finding a lockfile**. Anything
+that makes step 2 land on the wrong directory — or find nothing — produces the
+error, even though `node_modules/electron` is sitting right there at the root.
+
+### The three causes, in likelihood order
+
+**1. A stale `apps/<app>/package-lock.json` left behind.** ← most likely when
+copying this setup into an existing repo. `find-up` stops at the *nearest*
+lockfile, so it resolves to `apps/<app>/node_modules/electron`, which the
+workspace never created. Delete every per-app lockfile; one at the root only.
+
+**2. No lockfile at the workspace root.** Either `npm install` was never run
+from the root, or `package-lock.json` is in `.gitignore` and the checkout is
+fresh. Check `.gitignore` — a repo that ignores lockfiles will break Forge in a
+workspace, with nothing else obviously wrong.
+
+**3. Running Forge from the wrong directory.** `electron-forge start` must run
+with its cwd in the app. Use `npm run dev -w <app-name>` from the root, or
+`cd apps/<app> && npm run dev` — never `npx electron-forge start` at the root.
+
+### 30-second diagnostic
+
+From inside the app directory:
+
+```bash
+ls package-lock.json           # must NOT exist
+ls ../../package-lock.json     # MUST exist
+ls ../../node_modules/electron # MUST exist
+```
+
+Or ask Forge directly:
+
+```bash
+cd apps/<your-app>
+node -e "require('@electron-forge/core-utils/dist/electron-version.js').getElectronModulePath(process.cwd(),require('./package.json')).then(p=>console.log('resolved:',p)).catch(e=>console.log('FAILED:',e.message))"
+```
+
+### A related trap
+
+If `electron` is declared as a **range** (`"electron": "^37.2.5"`) rather than
+pinned (`"electron": "37.2.5"`), Forge must hit the filesystem to learn the
+installed version, so the same misconfiguration fails *earlier* and in more
+commands. This repo pins it exactly, which masks cause 2 for some operations —
+don't read a working `start` as proof the lockfile situation is sound.
+
+### Not the same error
+
+```
+Electron failed to install correctly, please delete node_modules/electron and try installing again
+```
+
+That one means Forge *found* the package but the binary was never downloaded —
+usually an install run with `--ignore-scripts`, or a blocked download. Fix with
+`npm rebuild electron` or reinstall without `--ignore-scripts`. Nothing to do
+with workspaces.
