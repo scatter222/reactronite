@@ -27,9 +27,13 @@ error comes from exactly one of them, and fixing the wrong layer does nothing.
 | **Electron Forge** | Does it survive `asar` packaging? | `forge.config.ts`, the `external` list |
 
 The trap: **dev only exercises the first three.** A setup can be perfect in
-`npm run dev` and still produce a packaged app that dies on launch, because layer
-four only runs during `npm run make`. Always smoke-test with `npm run make` before
-believing a change works.
+`npm run dev` and still produce a packaged app that dies on launch, because
+layer four only runs during `npm run make`.
+
+Worse, `make` itself can report success and still hand you a broken app — and
+running it from inside the repo can *appear* to work for the wrong reason. The
+only smoke test that means anything is: `npm run package`, copy the output to a
+directory outside the repo, and launch it there. See §12.
 
 ---
 
@@ -58,17 +62,21 @@ That's fine in dev. After `npm run make` it's `Cannot find module 'blah'`, becau
 outside the archive can load — and a symlink pointing out of the app directory
 is exactly that.
 
-**Fixed:** `vite.base.config.ts` now drops local packages before building
-`external`, so they get *bundled into* the output. Nothing needs to exist in
-`node_modules` at runtime.
+**Fixed:** `vite.base.config.ts` externalizes *only* Electron and Node
+builtins. Everything else — registry dependencies and workspace packages alike
+— is bundled into `main.js` / `preload.js`, so the packaged app needs no
+`node_modules` at all.
 
-⚠️ **This list is hand-maintained.** npm doesn't support pnpm's `workspace:`
-protocol, so a workspace dependency is written `"@reactronite/ui": "*"` — which
-is indistinguishable from a registry version range. `vite.base.config.ts`
-therefore keeps an explicit `LOCAL_PACKAGES` array. **Add every new workspace
-package to it**, or a packaged build will fail with `Cannot find module`. The
-`file:` / `link:` check still catches dependencies pointed at a directory
-outside the repo.
+This is broader than it first needs to be, and deliberately so. Externalizing
+`dependencies` only ever worked because the app had its own `node_modules` for
+`@electron/packager` to prune into the asar. Workspace hoisting silently
+removed that: `apps/wizard/node_modules` doesn't exist, packager copies only
+the app directory, and **`package` reports success while producing an app that
+dies on launch.** See §12 — this bit us for real.
+
+Native modules (anything with a `.node` binary) are the one thing that can't be
+bundled. `NATIVE_DEPENDENCIES` in `vite.base.config.ts` exists for those, with
+the caveat that listing one there is only half the job.
 
 ### c. `preserveSymlinks: true` picked which error you got
 
@@ -263,8 +271,8 @@ fails outright with `EUNSUPPORTEDPROTOCOL`.)
 Then: the same two `paths` entries in its `tsconfig.json`, the
 `@import "@reactronite/ui/styles.css"` line in its entry CSS, the same
 `resolve` / `server.fs.allow` block in its renderer Vite config, and
-`LOCAL_PACKAGES` in its `vite.base.config.ts`. Then `npm install` from the
-root. That's the whole checklist.
+the same `external` treatment in its `vite.base.config.ts` (builtins only).
+Then `npm install` from the root. That's the whole checklist.
 
 If you're moving an **existing** app in rather than scaffolding a fresh one,
 also delete its `package-lock.json` and its `.npmrc`. Both are inert at best
@@ -313,7 +321,8 @@ Shared *tokens* with per-app components is a perfectly good end state.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `Cannot find module '@reactronite/ui'` | Installed from `apps/wizard` instead of the root | `npm install` from the workspace root |
-| Works in `npm run dev`, packaged app won't launch | Local dep externalized, symlink can't live in the asar | Add it to `LOCAL_PACKAGES` in `vite.base.config.ts` |
+| `ERR_MODULE_NOT_FOUND` on launching the packaged app | A dependency was left external, but the asar has no `node_modules` | See §12 — externalize only builtins |
+| `Cannot make for rpm/deb, the following external binaries need to be installed` | Maker tooling missing on the host | Install `rpm` / `dpkg`+`fakeroot`, or narrow `makers` — unrelated to workspaces |
 | `EUNSUPPORTEDPROTOCOL "workspace:"` | npm has no `workspace:` protocol | Write the dependency as `"*"` |
 | `Cannot find the package "electron"` | Forge finds hoisted Electron via a lockfile; a stale per-app lockfile misdirects it | See §11 — usually a leftover `apps/<app>/package-lock.json` |
 | `ERESOLVE unable to resolve dependency tree` | npm enforces peer ranges that pnpm only warned about | Fix the version, don't reach for `--legacy-peer-deps` |
@@ -436,3 +445,78 @@ That one means Forge *found* the package but the binary was never downloaded —
 usually an install run with `--ignore-scripts`, or a blocked download. Fix with
 `npm rebuild electron` or reinstall without `--ignore-scripts`. Nothing to do
 with workspaces.
+
+---
+
+## 12. `make` / `package` in a workspace
+
+Two separate failures hide behind "make doesn't work". They're unrelated;
+check which one you have before changing anything.
+
+### A. The packaged app has no `node_modules` (workspace-caused, silent)
+
+`@electron/packager` copies **only the app directory** and prunes
+`<app>/node_modules` into the asar. Under npm workspaces that directory does
+not exist — everything is hoisted to the repo root — so **nothing** gets
+copied. The asar ends up containing just `.vite/` and `package.json`:
+
+```console
+$ npx @electron/asar list "out/<app>-linux-x64/resources/app.asar"
+/.vite
+/.vite/build/main.js
+/.vite/build/preload.js
+...
+/package.json          # <- no /node_modules anywhere
+```
+
+`package` and `make` both report **success**. The app then dies on launch:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'electron-squirrel-startup'
+  imported from .../app.asar/.vite/build/main.js
+```
+
+Any dependency left in Rollup's `external` list becomes a bare import in
+`main.js` that Node must resolve from `node_modules` at runtime — and there
+isn't one. **Fix: externalize only Electron and Node builtins** and let Rollup
+bundle the rest (`external` in `vite.base.config.ts`). The packaged app then
+has no runtime dependency on `node_modules` existing.
+
+Two things make this nasty:
+
+- **It doesn't reproduce on the dev machine.** Run the packaged app from inside
+  the repo and Node's upward search finds the *root* `node_modules` by
+  accident. Always test from a directory outside the repo:
+  ```bash
+  cp -r "out/<app>-linux-x64" /tmp/pkgtest/ && cd /tmp/pkgtest && "./<app>-linux-x64/<app>"
+  ```
+- **Electron shows the error in a GUI dialog and waits.** Under `xvfb-run` the
+  process just appears to hang; piping to `head` can swallow the message
+  entirely. Redirect to a file and read it.
+
+Verify a build is clean by checking nothing but builtins is imported:
+
+```bash
+grep -n 'from "' .vite/build/main.js | grep -vE 'from "(node:|electron")'
+# no output = everything third-party is bundled
+```
+
+### B. Maker tooling missing (not workspace-related)
+
+```
+Cannot make for rpm, the following external binaries need to be installed: rpmbuild
+Cannot make for deb, the following external binaries need to be installed: dpkg, fakeroot
+```
+
+`forge.config.ts` registers `MakerRpm` and `MakerDeb`, which both run on Linux
+and shell out to host tooling. This fails identically with or without
+workspaces, and it fails at *Resolving make targets* — **before** any packaging
+— which is the quickest way to tell it apart from A.
+
+- Debian/Ubuntu: `sudo apt install rpm dpkg fakeroot`
+- Fedora/RHEL: `sudo dnf install rpm-build dpkg fakeroot`
+- Or narrow the `makers` array to what you actually ship.
+
+`MakerZIP` needs no external binaries, but is currently restricted to
+`['darwin']`. Widening it to `['darwin', 'linux']` gives you a distributable on
+Linux with no host tooling — worth considering for CI.

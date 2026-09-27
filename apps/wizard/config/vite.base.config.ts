@@ -3,39 +3,35 @@ import type { AddressInfo } from 'node:net';
 
 import type { ConfigEnv, Plugin, UserConfig } from 'vite';
 
-import pkg from '../package.json';
-
 export const builtins = ['electron', ...builtinModules.flatMap((m) => [m, `node:${m}`])];
 
-const dependencies = ('dependencies' in pkg ? pkg.dependencies : {}) as Record<string, string>;
+/**
+ * Modules that cannot be bundled and must be resolved from `node_modules` at
+ * runtime — i.e. anything shipping a native `.node` binary.
+ *
+ * ⚠️ Adding to this list is not enough on its own. In an npm workspace,
+ * dependencies are hoisted to the repo root, so `apps/wizard/node_modules`
+ * does not exist — and `@electron/packager` only copies the app directory.
+ * Anything left external therefore ends up missing from the asar, `package`
+ * still reports success, and the app dies on launch with
+ * `ERR_MODULE_NOT_FOUND: Cannot find package '...'`. A native module needs
+ * `@electron-forge/plugin-auto-unpack-natives` plus a deliberate way of
+ * getting it into the package; see §12 of packages/ui/README.md.
+ */
+const NATIVE_DEPENDENCIES: string[] = [];
 
 /**
- * Dependencies that live on disk in this repo rather than in the registry.
+ * Everything except Electron, Node builtins and native modules is bundled into
+ * `.vite/build/main.js` and `preload.js`.
  *
- * ⚠️ Add every new workspace package here.
- *
- * These must NOT be externalized. An external import survives into
- * `.vite/build/*.js` as a bare specifier that Node resolves from
- * `node_modules` at runtime — but a workspace dependency is only a symlink
- * pointing outside the app directory, and `asar: true` plus the
- * `OnlyLoadAppFromAsar` fuse (see forge.config.ts) means nothing outside the
- * archive can be loaded. The packaged app then dies with "Cannot find module"
- * even though `npm run dev` worked fine. Bundling them sidesteps it entirely.
- *
- * This is a hand-maintained list because npm does not support pnpm's
- * `workspace:` protocol — a workspace dependency is written as `"*"`, which is
- * indistinguishable from a registry version range. The `file:`/`link:` check
- * still catches a dependency pointed at a directory outside the repo.
+ * This used to externalize every key of `dependencies`, which relied on those
+ * packages being present in the packaged app's `node_modules`. That assumption
+ * held only while the app had its own `node_modules`; under workspace hoisting
+ * it silently stopped being true. Bundling removes the runtime dependency on
+ * `node_modules` existing at all, which is also what makes workspace packages
+ * such as `@reactronite/ui` work when imported from the main process.
  */
-const LOCAL_PACKAGES = ['@reactronite/ui'];
-
-const isLocalDependency = (name: string, spec: string) =>
-  LOCAL_PACKAGES.includes(name) || /^(?:file|link|workspace):/.test(spec);
-
-export const external = [
-  ...builtins,
-  ...Object.keys(dependencies).filter((name) => !isLocalDependency(name, dependencies[name]))
-];
+export const external = [...builtins, ...NATIVE_DEPENDENCIES];
 
 export function getBuildConfig (env: ConfigEnv<'build'>): UserConfig {
   const { root, mode, command } = env;
