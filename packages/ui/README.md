@@ -189,7 +189,10 @@ Two things that catch people out:
    `import { cn } from '../lib/utils'` — **relative paths inside this package**,
    never `@/` or `#ui`, so the package stays self-contained.
 2. Re-export it from `src/index.ts`.
-3. Use it: `import { MyThing } from '#ui'`.
+3. If it pulls in a new third-party library, declare it **here**:
+   `npm install <pkg> --workspace @reactronite/ui`. Relying on the app's copy
+   appears to work and is a latent break — §13.
+4. Use it: `import { MyThing } from '#ui'`.
 
 There is no build step. The package's `exports` map points straight at `.ts`
 and `.tsx` source, and the consuming app's Vite compiles it. This is the
@@ -323,6 +326,7 @@ Shared *tokens* with per-app components is a perfectly good end state.
 | `Cannot find module '@reactronite/ui'` | Installed from `apps/wizard` instead of the root | `npm install` from the workspace root |
 | `ERR_MODULE_NOT_FOUND` on launching the packaged app | A dependency was left external, but the asar has no `node_modules` | See §12 — externalize only builtins |
 | `Cannot make for rpm/deb, the following external binaries need to be installed` | Maker tooling missing on the host | Install `rpm` / `dpkg`+`fakeroot`, or narrow `makers` — unrelated to workspaces |
+| `Rollup failed to resolve import "<pkg>"` from `packages/ui/src/...` | A shared package imports something it doesn't declare | `npm install <pkg> --workspace @reactronite/ui` — see §13 |
 | `EUNSUPPORTEDPROTOCOL "workspace:"` | npm has no `workspace:` protocol | Write the dependency as `"*"` |
 | `Cannot find the package "electron"` | Forge finds hoisted Electron via a lockfile; a stale per-app lockfile misdirects it | See §11 — usually a leftover `apps/<app>/package-lock.json` |
 | `ERESOLVE unable to resolve dependency tree` | npm enforces peer ranges that pnpm only warned about | Fix the version, don't reach for `--legacy-peer-deps` |
@@ -520,3 +524,69 @@ workspaces, and it fails at *Resolving make targets* — **before** any packagin
 `MakerZIP` needs no external binaries, but is currently restricted to
 `['darwin']`. Widening it to `['darwin', 'linux']` gives you a distributable on
 Linux with no host tooling — worth considering for CI.
+
+---
+
+## 13. `Rollup failed to resolve import "<pkg>"` from a shared package
+
+```
+[vite]: Rollup failed to resolve import "@emotion/react" from
+  "/repo/packages/ui/src/components/fancy.tsx"
+```
+
+This fails during the **Vite build inside `make`/`package`**, at *Building
+renderer targets* — before anything is packaged. It is not a packaging problem.
+
+### Cause
+
+**A shared package must declare every dependency its own source imports.**
+
+This package ships source, not a build (§5) — its `exports` point at `.tsx`
+files, which the consuming app's Vite compiles. So every bare import inside
+`packages/ui/src` has to be resolvable, which means listed in
+`packages/ui/package.json`. The app's `dependencies` are not a substitute.
+
+This bites hardest when a package is created by copying an existing
+`package.json` as a template: the scaffold lists `clsx`, `tailwind-merge` and
+friends, then components that need MUI, emotion, framer-motion or similar get
+dropped in, and nothing declares them.
+
+### Fix
+
+```bash
+npm install @emotion/react --workspace @reactronite/ui
+```
+
+Not `-w <app>`. Run through what `packages/ui/src` actually imports and make
+sure each one is in this package's `dependencies` (or `peerDependencies`, for
+things the app must own a single copy of — see below).
+
+### Why it may have worked before
+
+Two configurations build successfully, and only one of them is correct:
+
+| Declared in | Builds? | Correct? |
+| --- | --- | --- |
+| `packages/ui` | ✅ | ✅ |
+| the app only | ✅ | ❌ — works by accident |
+| neither | ❌ | — |
+
+npm hoists dependencies to the workspace root, so an import from
+`packages/ui/src` resolves by walking up into the root `node_modules` and finds
+a package the *app* declared. It builds, and keeps building right up until the
+app drops that dependency or the package is used by a second app that doesn't
+have it. Verified both ways — this is the most likely reason the same shared
+code builds in one repo and not another.
+
+### `dependencies` or `peerDependencies`?
+
+- **`peerDependencies`** for anything that breaks when duplicated — `react`,
+  `react-dom`, and emotion (two emotion instances means two style caches and
+  dropped styles, the same class of bug as two Reacts). The app installs it;
+  this package only states the requirement.
+- **`dependencies`** for everything else — self-contained libraries where a
+  second copy is merely wasteful, not broken.
+
+When a peer dependency is also needed to develop or typecheck this package
+standalone, list it in `devDependencies` too, as this package already does for
+`react`.
