@@ -327,6 +327,7 @@ Shared *tokens* with per-app components is a perfectly good end state.
 | `ERR_MODULE_NOT_FOUND` on launching the packaged app | A dependency was left external, but the asar has no `node_modules` | See §12 — externalize only builtins |
 | `Cannot make for rpm/deb, the following external binaries need to be installed` | Maker tooling missing on the host | Install `rpm` / `dpkg`+`fakeroot`, or narrow `makers` — unrelated to workspaces |
 | `Rollup failed to resolve import "<pkg>"` from `packages/ui/src/...` | A shared package imports something it doesn't declare | `npm install <pkg> --workspace @reactronite/ui` — see §13 |
+| `Copying files: Failed to locate module "<pkg>"` | A custom `packagerConfig.ignore` re-enabled pruning, and the pruner can't see hoisted deps | Delete `packagerConfig.ignore` — see §14 |
 | `EUNSUPPORTEDPROTOCOL "workspace:"` | npm has no `workspace:` protocol | Write the dependency as `"*"` |
 | `Cannot find the package "electron"` | Forge finds hoisted Electron via a lockfile; a stale per-app lockfile misdirects it | See §11 — usually a leftover `apps/<app>/package-lock.json` |
 | `ERESOLVE unable to resolve dependency tree` | npm enforces peer ranges that pnpm only warned about | Fix the version, don't reach for `--legacy-peer-deps` |
@@ -590,3 +591,85 @@ code builds in one repo and not another.
 When a peer dependency is also needed to develop or typecheck this package
 standalone, list it in `devDependencies` too, as this package already does for
 `react`.
+
+---
+
+## 14. `Copying files: Failed to locate module "<pkg>"`
+
+```
+You have set packagerConfig.ignore, the Electron Forge Vite plugin normally sets this automatically.
+✖ Copying files [FAILED: Failed to locate module "@emotion/react" from "/repo/apps/wizard"
+```
+
+Note *where* this fails: **Copying files**, inside `@electron/packager`. The
+Vite build already succeeded, so this is neither §13 (build-time resolution)
+nor §12A (runtime). The named package is just the first dependency in the app's
+`dependencies` — it says nothing about that package in particular.
+
+### Cause
+
+`@electron/packager` prunes devDependencies out of `<app>/node_modules` before
+packaging. To decide what to keep it walks the dependency tree with
+`flora-colossus`, and **that walker cannot see a workspace root**.
+
+Its walk-up climbs *two* directory levels per iteration, which is right for
+`node_modules/pkg` → root but wrong for an app nested at `apps/<name>`:
+
+```
+checked:  /repo/apps/wizard/node_modules/@emotion/react   ✗ (workspace: no local node_modules)
+checked:  /home/user/node_modules/@emotion/react          ✗
+checked:  /node_modules/@emotion/react                    ✗
+NEVER checked:  /repo/node_modules/@emotion/react         ← where npm actually put it
+```
+
+So every hoisted production dependency is unfindable, and the walker throws on
+the first one.
+
+### Why most people never hit it
+
+`@electron-forge/plugin-vite` sets this for you:
+
+```js
+forgeConfig.packagerConfig.ignore = (file) => !file.startsWith('/.vite');
+```
+
+Everything except `.vite/` is excluded, so `node_modules` is never copied, the
+pruner never runs, and the walker is never invoked. **But the plugin only does
+this if you haven't set `ignore` yourself:**
+
+```js
+if (forgeConfig.packagerConfig.ignore) { /* warn */ return forgeConfig; }
+```
+
+Setting your own `ignore` silently opts out of the default, `node_modules`
+starts being copied, and the walker runs. That yellow "You have set
+packagerConfig.ignore" warning immediately above the failure is the tell.
+
+### Fix
+
+**Preferred — delete `packagerConfig.ignore` from `forge.config.ts`.** Let the
+plugin set it. Since §12 bundles everything into `main.js`/`preload.js`, the
+packaged app needs no `node_modules`, so there is nothing worth copying.
+
+**If you genuinely need a custom ignore**, write it as a function that still
+excludes everything outside `.vite`:
+
+```ts
+packagerConfig: {
+  ignore: (file: string) => !!file && !file.startsWith('/.vite'),
+}
+```
+
+Both verified: custom array ignore → fails at *Copying files*; either fix above
+→ `✔ Packaging application`.
+
+Do **not** reach for `prune: false`. It silences the walker by copying
+`node_modules` wholesale, which bloats the app and still omits the hoisted
+packages that actually matter.
+
+### Related: a stray `<app>/node_modules`
+
+The pruner is only reached for files under `<app>/node_modules/`, so a
+workspace app normally has nothing there. If you once ran `npm install` inside
+the app directory, that stale tree can drag the pruner back into play — and it
+breaks §11 too. Delete it; install only from the root.
